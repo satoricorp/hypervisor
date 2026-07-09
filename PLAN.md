@@ -166,7 +166,7 @@ spike is their test oracle; UI second, binding them together in M2).
   `hvscan --watch` logs a state transition within 2s of a real claude code
   session starting/finishing work.
 
-- [ ] **M0 — UI skeleton.** Tauri window renders variant B layout with the
+- [x] **M0 — UI skeleton.** Tauri window renders variant B layout with the
   mockup's mock-session array. `npm run tauri dev` works.
   AC: the keyboard map above fully drives the mock UI.
 

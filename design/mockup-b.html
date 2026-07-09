@@ -1,0 +1,1036 @@
+<title>Hypervisor — Sidebar Variant</title>
+<style>
+  /* HYPERVISOR variant B — conductor-style split: sidebar list + always-on detail.
+     Same system as variant A: dark-only, mono, monochrome + semantic status,
+     radii lean zero, selection = solid white bar. */
+  :root {
+    --desk: #050607; --bg: #0a0c0e; --surface: #10141a; --surface-2: #151a21;
+    --inset: #0c0f13; --border: #1f242b; --border-2: #2e3540;
+    --ink: #dee3e8; --ink-2: #8a93a0; --ink-3: #545e6b; --sel: #e9edf2;
+    --ok: #46d68c; --busy: #e2a33e; --wait: #5ea8ff; --err: #e5544b; --mint: #57e0c9;
+    --mono: "Berkeley Mono", "TX-02", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --display: "Xer0", "Berkeley Mono", "TX-02", ui-monospace, "SF Mono", monospace;
+    --r-card: 3px; --r-chip: 2px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--desk); }
+  body {
+    margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    color: var(--ink);
+    background: radial-gradient(1200px 600px at 50% -10%, #0b0e12 0%, var(--desk) 60%);
+    min-height: 100vh; padding: 40px 20px 56px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { max-width: 1180px; margin: 0 auto; }
+
+  .window {
+    background: var(--bg); border: 1px solid var(--border-2); border-radius: 10px;
+    box-shadow: 0 0 0 1px #000, 0 24px 80px rgba(0,0,0,.55), 0 4px 16px rgba(0,0,0,.4);
+    overflow: hidden; display: flex; flex-direction: column;
+    height: min(700px, 84vh);
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding: 11px 16px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(#0d1014, #0b0d10);
+  }
+  .lights { display: flex; gap: 8px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .lights i:nth-child(1) { background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
+  .mark {
+    font-family: var(--display); font-size: 15px; font-weight: 700;
+    letter-spacing: .14em; color: var(--sel); user-select: none;
+  }
+  .mark small { font-family: var(--mono); font-weight: 400; letter-spacing: .05em; color: var(--ink-3); font-size: 8px; margin-left: 8px; }
+  .menukey {
+    margin-left: auto; font: inherit; font-size: 10px; letter-spacing: .06em;
+    color: var(--ink-2); background: var(--inset);
+    border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 4px 8px; cursor: pointer;
+  }
+  .menukey:hover { color: var(--ink); border-color: var(--border-2); }
+  .ticker {
+    cursor: pointer; font-size: 10.5px; color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+    padding: 0; border: 0; background: none;
+  }
+  .ticker b { color: var(--ink-2); font-weight: 600; }
+  .ticker:hover { color: var(--ink-2); }
+  .ticker:hover b { color: var(--ink); }
+
+  /* ————— split body: sidebar runs to the footer; prompt lives right-side only ————— */
+  .split { flex: 1; display: flex; min-height: 0; }
+  #side {
+    width: 292px; flex: none; overflow-y: auto;
+    border-right: 1px solid var(--border);
+    padding: 8px 0; background: var(--inset);
+  }
+  .rightcol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .newbtn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: calc(100% - 18px); margin: 0 9px 10px;
+    font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+    color: var(--bg); background: var(--sel);
+    border: 1px solid var(--sel); border-radius: var(--r-chip);
+    padding: 7px 8px; cursor: pointer;
+    box-shadow: 0 1px 0 rgba(0,0,0,.5), 0 0 14px rgba(233,237,242,.08);
+    transition: transform .05s, box-shadow .12s;
+  }
+  .newbtn kbd { font: inherit; font-size: 9px; font-weight: 400; opacity: .5; }
+  .newbtn:hover { box-shadow: 0 1px 0 rgba(0,0,0,.5), 0 0 24px rgba(233,237,242,.2); }
+  .newbtn:active { transform: translateY(1px); box-shadow: 0 0 8px rgba(233,237,242,.1); }
+  #main { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px; }
+
+  /* sidebar rows — dot beside a plain number, no boxes */
+  .srow {
+    display: grid; grid-template-columns: 12px 16px minmax(0,1fr);
+    gap: 1px 7px; align-items: center;
+    padding: 7px 10px 7px 9px; cursor: pointer;
+    border-left: 3px solid transparent;
+  }
+  .srow:hover { background: var(--surface); }
+  .srow.sel { background: var(--surface-2); border-left-color: var(--sel); }
+  .srow .num {
+    font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .srow.sel .num { color: var(--sel); font-weight: 700; }
+  .srow .t {
+    font-size: 11.5px; color: var(--ink); font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .srow .m {
+    grid-column: 3; display: flex; align-items: center; gap: 6px;
+    font-size: 9.5px; color: var(--ink-3);
+    white-space: nowrap; overflow: hidden;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+  /* traffic light only: yellow working · green done · red needs-you (input/stalled) */
+  .st-working .dot { background: var(--busy); animation: pulse 1.5s ease-in-out infinite; }
+  .st-done .dot { background: var(--ok); box-shadow: 0 0 8px rgba(70,214,140,.5); }
+  .st-input .dot { background: var(--err); animation: pulse 2.4s ease-in-out infinite; }
+  .st-error .dot { background: var(--err); }
+  .st-working { color: var(--busy); } .st-done { color: var(--ok); }
+  .st-input, .st-error { color: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  .obstag {
+    font-size: 8.5px; letter-spacing: .08em; color: var(--ink-3);
+    border: 1px dashed var(--border-2); border-radius: var(--r-chip);
+    padding: 0 4px; text-transform: uppercase;
+  }
+
+  /* ————— main: session detail ————— */
+  .dwrap { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
+  .dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .dhead h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .dhead .status { align-self: center; display: flex; }
+  .meta { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .modelchip {
+    font-size: 9px; color: var(--ink-3);
+    border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 1px 5px; white-space: nowrap;
+  }
+  .ctlchip {
+    font-size: 8.5px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-3); border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 1px 5px;
+  }
+  .ctlchip.observe { border-style: dashed; color: var(--busy); border-color: rgba(226,163,62,.5); }
+  .hicon { color: var(--ink-2); display: inline-flex; align-items: center; flex: none; }
+  .hicon svg { display: block; }
+  .dfrom { margin: -4px 0 0; font-size: 10px; color: var(--ink-3); }
+  .loopchip {
+    font-size: 9px; color: var(--mint);
+    border: 1px solid rgba(87,224,201,.35); border-radius: var(--r-chip);
+    padding: 1px 5px; white-space: nowrap;
+  }
+
+  .dlog {
+    flex: 1; min-height: 160px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 12px 14px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 7px;
+    font-size: 11.5px; line-height: 1.55;
+  }
+  .dyou { color: var(--ink); }
+  .dyou::before { content: "❯ "; color: var(--sel); }
+  .dagent { color: var(--ink-2); white-space: pre-wrap; }
+  .dtool { color: var(--ink-3); }
+  .dthink { color: var(--ink-3); }
+  .dresult { color: var(--ok); }
+  .dask { color: var(--wait); }
+  .dfail { color: var(--err); }
+  .caret { display: inline-block; width: .6em; animation: blink 1.1s steps(2) infinite; color: var(--ink-2); }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .subswrap { display: flex; flex-direction: column; gap: 3px; }
+  .subrow {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 10px; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-chip);
+    padding: 3px 7px; cursor: pointer;
+  }
+  .subrow:hover { border-color: var(--border-2); }
+  .subrow.ssel { border-color: var(--sel); box-shadow: 0 0 0 1px var(--sel); }
+  .subrow .num { font-size: 9px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .subrow .subtask { flex: 1; color: var(--ink-3); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .subrow .modelchip { font-size: 8.5px; padding: 0 4px; }
+
+  /* ————— main: panes (usage / access / settings / history) ————— */
+  .pane h4 {
+    margin: 22px 0 10px; font-size: 9.5px; font-weight: 500;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .pane h4:first-child { margin-top: 0; }
+  .escnote { font-size: 10px; color: var(--ink-3); float: right; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); padding: 12px 13px; }
+  .tile .lbl { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+  .tile .val { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .tile .sub2 { font-size: 10px; color: var(--ink-3); margin-top: 2px; }
+  .bars { display: flex; flex-direction: column; gap: 9px; }
+  .barrow { display: grid; grid-template-columns: 180px 1fr max-content; gap: 12px; align-items: center; }
+  .barrow .name { font-size: 11px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barrow .name span { color: var(--ink-3); }
+  .barrow .track { height: 8px; }
+  .barrow .fill { height: 100%; background: #333d49; border-radius: var(--r-chip); border-right: 2px solid var(--ink); min-width: 4px; }
+  .barrow .num { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .barrow .num span { color: var(--ink-3); }
+  .listrow {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 2px; border-top: 1px solid var(--border); font-size: 11px; min-width: 0;
+  }
+  .listrow:last-of-type { border-bottom: 1px solid var(--border); }
+  .listrow .dim { color: var(--ink-3); }
+  .listrow .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .listrow .tabnum { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+  .chip-inc { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--border-2); border-radius: var(--r-chip); color: var(--ok); padding: 1px 6px; }
+  .footnote { margin-top: 18px; font-size: 10px; color: var(--ink-3); }
+  .hq {
+    width: 100%; font: inherit; font-size: 12px; color: var(--ink);
+    background: var(--inset); border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 8px 10px; outline: none; margin-bottom: 8px; caret-color: var(--sel);
+  }
+  .hq::placeholder { color: var(--ink-3); }
+  .switch {
+    margin-left: auto; width: 24px; height: 13px; flex: none;
+    border: 1px solid var(--border-2); border-radius: var(--r-chip);
+    background: var(--inset); cursor: pointer; position: relative; padding: 0;
+  }
+  .switch i { position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; background: var(--ink-3); display: block; }
+  .switch.on { background: rgba(70,214,140,.16); border-color: rgba(70,214,140,.5); }
+  .switch.on i { left: auto; right: 2px; background: var(--ok); }
+
+  /* ————— prompt bar / commands / palette / toast ————— */
+  .promptzone { position: relative; border-top: 1px solid var(--border); background: var(--inset); }
+  .promptbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
+  .target {
+    flex: none; display: flex; align-items: center; gap: 7px;
+    font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums;
+    border: 1px solid var(--border-2); border-radius: var(--r-chip);
+    background: var(--surface); padding: 4px 10px; white-space: nowrap;
+  }
+  .target .tdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  #prompt {
+    flex: 1; font: inherit; font-size: 12.5px; color: var(--ink);
+    background: none; border: 0; outline: none; min-width: 120px; caret-color: var(--sel);
+  }
+  #prompt::placeholder { color: var(--ink-3); }
+  .sendkey { font-size: 9.5px; color: var(--ink-3); flex: none; }
+  .cmdmenu {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(100% + 8px);
+    width: min(480px, calc(100% - 28px));
+    background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--r-card);
+    box-shadow: 0 12px 40px rgba(0,0,0,.6); display: none; overflow: hidden;
+  }
+  .cmdmenu.open { display: block; }
+  .cmdcrumb { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3); padding: 7px 12px; border-bottom: 1px solid var(--border); }
+  .cmditems { max-height: 240px; overflow-y: auto; padding: 4px; }
+  .cmditem { display: flex; align-items: baseline; gap: 10px; padding: 7px 9px; border-radius: 0; cursor: pointer; }
+  .cmditem .cl { font-size: 12px; color: var(--ink); white-space: nowrap; }
+  .cmditem .cd { font-size: 10.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmditem.active { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--sel); }
+  .cmdhint { font-size: 9.5px; color: var(--ink-3); padding: 6px 12px; border-top: 1px solid var(--border); }
+  #palette { position: fixed; inset: 0; z-index: 40; background: rgba(5,6,7,.55); display: none; }
+  #palette.open { display: block; }
+  .palpanel {
+    width: min(480px, 92vw); margin: 16vh auto 0;
+    background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--r-card);
+    overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,.7);
+  }
+  #palinput {
+    width: 100%; font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--inset); border: 0; border-bottom: 1px solid var(--border);
+    outline: none; padding: 11px 13px; caret-color: var(--sel);
+  }
+  #palinput::placeholder { color: var(--ink-3); }
+  .statusbar {
+    display: flex; gap: 16px; align-items: center;
+    padding: 7px 14px; border-top: 1px solid var(--border);
+    font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+  }
+  .statusbar .hints { margin-left: auto; }
+  .statusbar kbd { font: inherit; color: var(--ink-2); }
+  .yolobtn {
+    font: inherit; font-size: 10px; color: var(--ink-3);
+    background: none; border: 0; cursor: pointer; padding: 0;
+    letter-spacing: .06em;
+  }
+  .yolobtn i { font-style: normal; color: var(--ink-2); }
+  .yolobtn.on, .yolobtn.on i { color: var(--busy); }
+  .yolobtn:hover { color: var(--ink-2); }
+  #toast {
+    position: fixed; right: 22px; bottom: 22px; z-index: 50;
+    background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--r-card);
+    padding: 9px 13px; font-size: 11px; color: var(--ink);
+    box-shadow: 0 12px 40px rgba(0,0,0,.6);
+    opacity: 0; transform: translateY(6px); pointer-events: none;
+    transition: opacity .18s, transform .18s; max-width: 340px;
+  }
+  #toast.show { opacity: 1; transform: none; }
+  #toast b { color: var(--ok); font-weight: 400; }
+
+  .tryline { text-align: center; font-size: 10.5px; color: var(--ink-3); margin: 18px 0 0; }
+  .tryline kbd { font: inherit; color: var(--ink-2); border: 1px solid var(--border-2); border-radius: var(--r-chip); padding: 1px 5px; background: var(--surface); }
+  .tryline a { color: var(--ink-2); }
+
+  button:focus-visible, .ticker:focus-visible, #prompt:focus-visible { outline: 1px solid var(--sel); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  @media (max-width: 720px) {
+    body { padding: 16px 10px 40px; }
+    #side { width: 190px; }
+    .barrow { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>
+
+<div class="stage">
+  <div class="window" role="application" aria-label="Hypervisor sidebar variant">
+    <div class="titlebar">
+      <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+      <span class="mark">HYPERVISOR<small>v0.1 · variant B</small></span>
+      <button class="menukey" id="menukey" title="command palette">⌘K</button>
+    </div>
+
+    <div class="split">
+      <aside id="side" aria-label="sessions"></aside>
+      <div class="rightcol">
+        <main id="main"></main>
+        <div class="promptzone">
+          <div class="cmdmenu" id="cmdmenu" role="listbox">
+            <div class="cmdcrumb" id="cmdcrumb">commands</div>
+            <div class="cmditems" id="cmditems"></div>
+            <div class="cmdhint">↑↓ navigate · ⏎ choose · esc back</div>
+          </div>
+          <div class="promptbar">
+            <div class="target" id="target"></div>
+            <input id="prompt" type="text" spellcheck="false" autocomplete="off"
+                   placeholder="prompt selected session — or / for commands" aria-label="prompt" />
+            <span class="sendkey">⏎ send</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <div class="ticker" id="ticker" tabindex="0" title="open usage"><b>$4.51</b> · 2.41 MTOK</div>
+      <button class="yolobtn" id="yolo" title="auto-approve every permission request">yolo <i>off</i></button>
+      <span class="hints"><kbd>1–9</kbd> select · <kbd>j k</kbd> sessions · <kbd>h l</kbd> subagents · <kbd>⇥</kbd> approve · <kbd>/</kbd> commands · <kbd>⌘K</kbd> menu</span>
+    </div>
+  </div>
+
+  <p class="tryline">variant B — conductor-style split · session 9 is <kbd>observe-only</kbd>: select it and hit <kbd>⏎</kbd> to adopt · <a href="https://claude.ai/code/artifact/00220b6e-3958-4eb7-b074-52812e64202b">variant A — stacked list ↗</a></p>
+</div>
+
+<div id="toast" role="status"></div>
+
+<div id="palette">
+  <div class="palpanel">
+    <input id="palinput" type="text" placeholder="where to? — views, commands" spellcheck="false" autocomplete="off" aria-label="command palette" />
+    <div class="cmditems" id="palitems" role="listbox"></div>
+    <div class="cmdhint">↑↓ navigate · ⏎ go · esc close</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const ICON = {
+    'claude code': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3.6 3.6M14.8 14.8l3.6 3.6M18.4 5.6l-3.6 3.6M9.2 14.8l-3.6 3.6"/></svg>',
+    'claude.ai': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v3M12 13.5v3M7.5 12h3M13.5 12h3M8.9 8.9l2 2M13.1 13.1l2 2M15.1 8.9l-2 2M10.9 13.1l-2 2"/></svg>',
+    'codex': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="12" rx="9" ry="3.8"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(120 12 12)"/></svg>',
+    'cursor': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.5l8.5 4.75v9.5L12 21.5l-8.5-4.75v-9.5z"/><path d="M12 21.5V12M12 12L3.5 7.25M12 12l8.5-4.75"/></svg>',
+    'opencode': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 2.5-3 2.5M12.5 15H17"/></svg>',
+  };
+  const iconOf = n => ICON[n] || (n === 'claude' ? ICON['claude code'] : '');
+
+  const sessions = [
+    { app: 'claude code', model: 'fable-5', title: 'refactor auth middleware to session tokens',
+      sent: 'use the existing redis client, don’t add ioredis', state: 'working', ctl: 'tmux',
+      tool: 'Edit', toolArg: 'src/auth/middleware.ts · +41 −18',
+      think: ['the session token needs the same ttl as the redis key or refresh drifts',
+              'checking whether verifySession is called anywhere outside middleware',
+              'logout clears the cookie but not the redis entry — fixing that too'],
+      thinkIdx: 0, repo: 'gx', br: 'feature/auth-tokens',
+      subs: [
+        { target: 'opencode', model: 'gpt-5', state: 'working', task: 'integration tests for the new session flow' },
+        { target: 'codex', model: 'o4-mini', state: 'done', task: 'update api docs for the token endpoints' },
+      ] },
+    { app: 'codex', model: 'gpt-5-codex', title: 'fix flaky retry test in ci',
+      sent: 'failure is only on ubuntu-latest, so it’s timing — check the retry window',
+      state: 'done', age: '2m', ctl: 'native',
+      result: '✓ widened retry window to 250ms + jitter · 3 consecutive green runs',
+      output: ['widened the window in test/retry.spec.ts:41', 'jitter 0–80ms keeps p99 well under budget',
+               'ran the suite 3× on ubuntu-latest — all green'], subs: [] },
+    { app: 'claude.ai', model: 'fable-5', title: 'q3 roadmap narrative draft',
+      sent: 'tighten the security section, cut it by a third', state: 'done', age: '11m', ctl: 'observe',
+      result: '✓ redraft ready — security section down from 900 to 580 words',
+      output: ['cut the threat-model subsection, folded the key points into the overview',
+               'kept the soc2 timeline — it anchors the whole quarter'], subs: [], noAdopt: true },
+    { app: 'cursor', model: 'sonnet-5', title: 'migrate dashboard to tailwind v4',
+      sent: 'keep the class sorting plugin, drop everything else from postcss',
+      state: 'working', ctl: 'watch',
+      tool: 'Grep', toolArg: '"@apply" — 41 matches in 17 files',
+      think: ['v4 drops @apply in css modules — these need inlining',
+              'the dashboard grid arbitrary values map cleanly to v4 tokens',
+              'postcss config is legacy, replacing with @tailwindcss/vite'],
+      thinkIdx: 0, repo: 'dashboard', br: 'tailwind-v4', subs: [] },
+    { app: 'opencode', model: 'gpt-5', title: 'integration tests for billing webhooks',
+      sent: 'cover the dunning and proration paths too', state: 'input', ctl: 'native',
+      approval: 'Bash(stripe fixtures pull --api-version 2026-03 --write test/fixtures/)',
+      ask: '', subs: [] },
+    { app: 'claude code', model: 'opus-4.8', title: 'chase down memory leak in worker pool',
+      sent: 'bisect the heap growth, start from the queue consumer', state: 'error', ctl: 'tmux',
+      fail: '✗ session stalled · no output for 12m · ⏎ to nudge',
+      repo: 'gx', br: 'fix/worker-leak', wt: 'wt-2', subs: [] },
+    { app: 'codex', model: 'gpt-5', title: 'audit npm scripts for postinstall hooks',
+      sent: 'flag anything that runs code on install, dev deps included', state: 'done', age: '24m', ctl: 'native',
+      result: '✓ 2 packages flagged — esbuild pinned, husky postinstall removed',
+      output: ['esbuild: pinned to 0.27.4, checksum verified', 'husky: replaced postinstall with a prepare script'], subs: [] },
+    { app: 'claude.ai', model: 'fable-5', title: 'competitor pricing teardown',
+      sent: 'focus on the enterprise tiers, ignore the free plans', state: 'working', ctl: 'observe', noAdopt: true,
+      tool: 'WebSearch', toolArg: '"acme enterprise tier pricing 2026"',
+      think: ['their enterprise page hides seat minimums — checking the sales pdf',
+              'usage-based add-ons make the sticker price misleading',
+              'building the comparison around effective per-seat cost'],
+      thinkIdx: 0, subs: [] },
+    { app: 'claude code', model: 'opus-4.8', title: 'tune retry backoff in gx cloud sync',
+      sent: 'cap the backoff at 30s and add jitter', state: 'done', age: '18m', ctl: 'observe', sid: '8f3a21c9',
+      result: '✓ backoff capped at 30s + full jitter — sync tests green',
+      output: ['exponential base stays 500ms, cap 30s', 'jitter is full-range to avoid thundering herd'],
+      repo: 'gx', br: 'feature/sync-backoff', subs: [] },
+  ];
+
+  const STATE_META = {
+    working: { cls: 'st-working', color: 'var(--busy)' },
+    done:    { cls: 'st-done',    color: 'var(--ok)' },
+    input:   { cls: 'st-input',   color: 'var(--err)' },
+    error:   { cls: 'st-error',   color: 'var(--err)' },
+  };
+  const CTL_HINT = {
+    tmux:    { label: '⏻ runs in background', tip: 'detached in hypervisor tmux — keeps working with the laptop lid closed' },
+    native:  { label: 'api · background',     tip: 'driven over the harness’s local api — survives app restarts' },
+    watch:   { label: 'watch',                tip: 'read-only watcher — cursor owns this session' },
+    observe: { label: 'observe-only',         tip: 'not yet controlled — ⏎ adopts it into background tmux' },
+  };
+
+  const TARGETS = [
+    { id: 'opencode', label: 'opencode',     desc: 'local cli · any provider' },
+    { id: 'codex',    label: 'codex',        desc: 'openai · terminal' },
+    { id: 'claude',   label: 'claude code',  desc: 'anthropic · terminal' },
+    { id: 'cursor',   label: 'cursor agent', desc: 'ide background agent' },
+  ];
+  const MODELS = {
+    opencode: ['claude-sonnet-5', 'gpt-5', 'glm-5.2', 'qwen3-coder'],
+    codex:    ['gpt-5-codex', 'gpt-5', 'o4-mini'],
+    claude:   ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4.5'],
+    cursor:   ['composer-2', 'claude-sonnet-5', 'gpt-5'],
+  };
+  const ROOT_CMDS = [
+    { id: 'subagents', label: '/subagents', desc: 'hand this session’s work to another app + model' },
+    { id: 'plan',      label: '/plan',      desc: 'draft a plan first — executes only after you approve' },
+    { id: 'review',    label: '/review',    desc: 'spawn a reviewer on this session’s diff' },
+    { id: 'loop',      label: '/loop',      desc: 'keep re-running until you stop it' },
+    { id: 'broadcast', label: '/broadcast', desc: 'send the prompt to every live session' },
+    { id: 'handoff',   label: '/handoff',   desc: 'move this session — context and all — to another harness' },
+    { id: 'new',       label: '/new',       desc: 'start a fresh session — pick harness + model' },
+    { id: 'worktree',  label: '/worktree',  desc: 'move this session into a fresh git worktree' },
+    { id: 'compact',   label: '/compact',   desc: 'compact this session’s context window' },
+    { id: 'kill',      label: '/kill',      desc: 'end this session' },
+  ];
+
+  let sel = 0, subSel = -1, view = 'session';
+  const menu = { open: false, step: 'root', cmd: 'subagents', target: null, active: 0, items: [] };
+  const timers = new Map();
+
+  const $ = (s, el) => (el || document).querySelector(s);
+  const side = $('#side'), main = $('#main'), input = $('#prompt'), targetEl = $('#target');
+  const cmdmenu = $('#cmdmenu'), cmditems = $('#cmditems'), cmdcrumb = $('#cmdcrumb');
+  const toastEl = $('#toast');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const subDot = x => `<span class="status ${STATE_META[x.state].cls}"><i class="dot"></i></span>`;
+
+  // ————— sidebar (subagents stay collapsed: just the ↳ count) —————
+  function renderSide() {
+    side.innerHTML = '<button class="newbtn" id="newbtn">+ New Agent <kbd>⌘N</kbd></button>' +
+    sessions.map((s, i) => {
+      const m = STATE_META[s.state];
+      return `<div class="srow ${i === sel ? 'sel' : ''}" data-i="${i}">
+        <span class="status ${m.cls}"><i class="dot"></i></span>
+        <span class="num">${i < 9 ? i + 1 : '·'}</span>
+        <span class="t">${esc(s.title)}</span>
+        <span class="m">
+          ${s.approval ? '⏸ approval · ' : ''}${s.subs.length ? `↳ ${s.subs.length} · ` : ''}${esc(s.model)}
+          ${s.repo ? ` · ${esc(s.repo)}` : ''}
+          ${s.ctl === 'observe' ? '<span class="obstag">obs</span>' : ''}
+          ${s.loop ? '<span class="loopchip">↻</span>' : ''}
+        </span>
+      </div>`;
+    }).join('');
+  }
+
+  // ————— main pane —————
+  function buildLog(s) {
+    const L = [{ k: 'you', t: s.title }];
+    L.push({ k: 'agent', t: 'on it — scoping the work before touching anything.' });
+    L.push({ k: 'tool', t: 'Read(project context)' });
+    if (s.state === 'working' || s.state === 'error') {
+      L.push({ k: 'agent', t: 'first pass done; the remaining work is mechanical but touches several files.' });
+    }
+    L.push({ k: 'you', t: s.sent });
+    return L;
+  }
+
+  function nowBlock(s) {
+    if (s.state === 'working') {
+      return `<div class="dtool">⚒ ${esc(s.tool)}(${esc(s.toolArg)})</div>` +
+        s.think.map((t, n) => `<div class="dthink">${esc(t)}${n === s.think.length - 1 ? '<span class="caret">▌</span>' : ''}</div>`).join('');
+    }
+    if (s.state === 'done') {
+      return `<div class="dresult">${esc(s.result)}</div>` +
+        (s.output || []).map(l => `<div class="dagent">${esc(l)}</div>`).join('');
+    }
+    if (s.state === 'input') {
+      if (s.approval) {
+        return `<div class="dask">⏸ wants to run — ${esc(s.approval)}</div>
+          <div class="dthink">⇥ approve · or respond below to deny with guidance</div>`;
+      }
+      return `<div class="dask">${esc(s.ask)}</div>`;
+    }
+    return `<div class="dfail">${esc(s.fail)}</div>`;
+  }
+
+  function logHtml(L) {
+    return L.map(e =>
+      e.k === 'you' ? `<div class="dyou">${esc(e.t)}</div>` :
+      e.k === 'tool' ? `<div class="dtool">⚒ ${esc(e.t)}</div>` :
+      `<div class="dagent">${esc(e.t)}</div>`).join('');
+  }
+
+  function renderMain() {
+    if (view !== 'session') { renderPane(); return; }
+    const s = sessions[sel];
+    if (subSel >= 0 && s.subs[subSel]) {
+      const x = s.subs[subSel];
+      if (!x.log) x.log = [{ k: 'you', t: x.task }, { k: 'agent', t: 'picked up the handoff — running in an isolated worktree.' }];
+      const nowSub = x.state === 'working'
+        ? `<div class="dtool">⚒ Bash(npm test · watching)</div><div class="dthink">iterating until green<span class="caret">▌</span></div>`
+        : `<div class="dresult">✓ handoff complete — results reported back to the orchestrator</div>`;
+      main.innerHTML = `<div class="dwrap">
+        <div class="dhead">${subDot(x)}<h3>${esc(x.task || 'subagent')}</h3>
+          <span class="meta"><span class="modelchip">${esc(x.model)}</span>
+          <span class="hicon" title="${esc(x.target)}">${iconOf(x.target)}</span></span></div>
+        <p class="dfrom">↳ subagent ${sel + 1}·${subSel + 1} of “${esc(s.title)}” · h steps back up</p>
+        <div class="dlog">${logHtml(x.log)}${nowSub}</div></div>`;
+    } else {
+      if (!s.log) s.log = buildLog(s);
+      const m = STATE_META[s.state];
+      const subs = s.subs.length
+        ? `<div class="subswrap">` + s.subs.map((x, j) =>
+            `<div class="subrow ${subSel === j ? 'ssel' : ''}" data-j="${j}">
+               ${subDot(x)}<span class="num">${sel + 1}·${j + 1}</span>
+               <span class="subtask">${esc(x.task || '')}</span>
+               <span class="modelchip">${esc(x.model)}</span>
+               <span class="hicon" title="${esc(x.target)}">${iconOf(x.target)}</span>
+             </div>`).join('') + `</div>`
+        : '';
+      main.innerHTML = `<div class="dwrap">
+        <div class="dhead">
+          <span class="status ${m.cls}"><i class="dot"></i></span>
+          <h3>${esc(s.title)}</h3>
+          <span class="meta">
+            ${s.loop ? '<span class="loopchip">↻ loop</span>' : ''}
+            <span class="ctlchip ${s.ctl === 'observe' ? 'observe' : ''}"
+                  title="${esc((CTL_HINT[s.ctl] || CTL_HINT.tmux).tip)}">${(CTL_HINT[s.ctl] || CTL_HINT.tmux).label}</span>
+            <span class="modelchip">${esc(s.model)}</span>
+            <span class="hicon" title="${esc(s.app)}">${iconOf(s.app)}</span>
+          </span>
+        </div>
+        ${s.repo ? `<p class="dfrom">⎇ ${esc(s.repo)} · ${esc(s.br || 'main')}${s.wt ? ` · worktree ${esc(s.wt)}` : ''}</p>` : ''}
+        ${subs}
+        <div class="dlog" id="dlog">${logHtml(s.log)}<div id="nowblock">${nowBlock(s)}</div></div></div>`;
+      const log = $('#dlog');
+      if (log) log.scrollTop = log.scrollHeight;
+    }
+  }
+
+  // ————— other panes (⌘K destinations) —————
+  const PANES = {
+    usage: `<div class="pane"><span class="escnote">esc ↩ session</span><h4>Usage</h4>
+      <div class="tiles">
+        <div class="tile"><div class="lbl">API spend · today</div><div class="val">$4.51</div><div class="sub2">week $23.80</div></div>
+        <div class="tile"><div class="lbl">API tokens</div><div class="val">2.41M</div><div class="sub2">in 1.9M · out 0.5M</div></div>
+        <div class="tile"><div class="lbl">Subscription tokens</div><div class="val">3.04M</div><div class="sub2">$0 marginal</div></div>
+        <div class="tile"><div class="lbl">Handoffs</div><div class="val">3</div><div class="sub2">opencode ×2 · codex ×1</div></div>
+      </div>
+      <h4>Cost by model — API · today</h4>
+      <div class="bars">
+        <div class="barrow"><div class="name">claude-fable-5 <span>· anthropic</span></div><div class="track"><div class="fill" style="width:100%"></div></div><div class="num">$2.04 <span>· 812K tok</span></div></div>
+        <div class="barrow"><div class="name">gpt-5 <span>· openai</span></div><div class="track"><div class="fill" style="width:58%"></div></div><div class="num">$1.18 <span>· 640K tok</span></div></div>
+        <div class="barrow"><div class="name">claude-sonnet-5 <span>· anthropic</span></div><div class="track"><div class="fill" style="width:44%"></div></div><div class="num">$0.89 <span>· 594K tok</span></div></div>
+        <div class="barrow"><div class="name">o4-mini <span>· openai</span></div><div class="track"><div class="fill" style="width:15%"></div></div><div class="num">$0.31 <span>· 238K tok</span></div></div>
+        <div class="barrow"><div class="name">glm-5.2 <span>· opencode</span></div><div class="track"><div class="fill" style="width:5%"></div></div><div class="num">$0.09 <span>· 126K tok</span></div></div>
+      </div>
+      <h4>Included in subscriptions</h4>
+      <div class="listrow"><span>claude code</span><span class="dim">· claude max 20×</span><span class="tabnum">1.90M tok</span><span class="chip-inc">included</span></div>
+      <div class="listrow"><span>codex</span><span class="dim">· chatgpt pro</span><span class="tabnum">0.73M tok</span><span class="chip-inc">included</span></div>
+      <div class="listrow"><span>cursor</span><span class="dim">· cursor pro</span><span class="tabnum">0.41M tok</span><span class="chip-inc">included</span></div>
+      <p class="footnote">costs approximate — token counts from session logs; pricing synced jul 2026.</p></div>`,
+    access: `<div class="pane"><span class="escnote">esc ↩ session</span><h4>Keys &amp; subscriptions</h4>
+      <div class="listrow"><span class="grow">ANTHROPIC_API_KEY</span><span class="dim">env · ~/.zshrc</span><span class="dim">sk-ant-…4Q2A</span><span class="tabnum st-done">● active</span></div>
+      <div class="listrow"><span class="grow">OPENAI_API_KEY</span><span class="dim">keychain</span><span class="dim">sk-proj-…9fKM</span><span class="tabnum st-done">● active</span></div>
+      <div class="listrow"><span class="grow">claude max 20×</span><span class="dim">subscription</span><span class="dim">renews aug 3</span><span class="tabnum st-done">● active</span></div>
+      <div class="listrow"><span class="grow">chatgpt pro</span><span class="dim">subscription</span><span class="dim">renews jul 22</span><span class="tabnum st-done">● active</span></div>
+      <div class="listrow"><span class="grow">cursor pro</span><span class="dim">subscription</span><span class="dim">renews jul 30</span><span class="tabnum st-done">● active</span></div>
+      <div class="listrow"><span class="grow dim">OPENROUTER_API_KEY</span><span class="dim">env</span><span class="dim">not found</span><span class="tabnum dim">○ missing</span></div>
+      <p class="footnote">read-only — hypervisor never stores key material, never proxies or resells tokens: your keys, your subscriptions, zero markup.</p></div>`,
+    settings: `<div class="pane"><span class="escnote">esc ↩ session</span><h4>Notifications</h4>
+      <div class="listrow"><span>notify when a session responds</span><span class="dim">notification center</span><button class="switch on"><i></i></button></div>
+      <div class="listrow"><span>play sound on done</span><span class="dim">ping</span><button class="switch on"><i></i></button></div>
+      <h4>Sources</h4>
+      <div class="listrow"><span>claude code</span><span class="dim">hooks + transcripts</span><button class="switch on"><i></i></button></div>
+      <div class="listrow"><span>codex</span><span class="dim">session files</span><button class="switch on"><i></i></button></div>
+      <div class="listrow"><span>opencode</span><span class="dim">http api</span><button class="switch on"><i></i></button></div>
+      <div class="listrow"><span>cursor</span><span class="dim">state.vscdb</span><button class="switch on"><i></i></button></div>
+      <div class="listrow"><span>claude.ai</span><span class="dim">browser extension — not installed</span><button class="switch"><i></i></button></div>
+      <h4>General</h4>
+      <div class="listrow"><span>auto-worktree when a repo is busy</span><span class="dim">new session in an occupied repo gets its own worktree</span><button class="switch on"><i></i></button></div>
+      <div class="listrow"><span>launch at login</span><button class="switch on"><i></i></button></div>
+      <p class="footnote">mocked — toggles flip but persist nothing.</p></div>`,
+    history: `<div class="pane"><span class="escnote">esc ↩ session</span><h4>History</h4>
+      <input class="hq" id="hq" type="text" placeholder="search finished sessions…" spellcheck="false" />
+      <div id="hrows"></div>
+      <p class="footnote">stored locally — sqlite at ~/Library/Application Support/Hypervisor/history.db · export as jsonl</p></div>`,
+  };
+  const HISTORY = [
+    { when: 'today 09:12', title: 'wire stripe webhook retries', app: 'claude code', model: 'fable-5', num: '212K · $0.61', note: 'merged pr #91' },
+    { when: 'today 08:40', title: 'bump vite to 7.1', app: 'codex', model: 'gpt-5-codex', num: '48K · sub', note: 'landed on main' },
+    { when: 'yesterday', title: 'fix oauth callback loop', app: 'cursor', model: 'sonnet-5', num: '156K · sub', note: 'shipped in 0.9.3' },
+    { when: 'jul 05', title: 'benchmark warm-start latency', app: 'opencode', model: 'glm-5.2', num: '301K · $0.22', note: 'report in scratch/bench.md' },
+    { when: 'jul 04', title: 'rewrite queue consumer in go', app: 'claude code', model: 'opus-4.8', num: '1.1M · $2.84', note: 'abandoned — kept node impl' },
+    { when: 'jul 03', title: 'add rate limiting to public api', app: 'codex', model: 'gpt-5', num: '410K · $0.74', note: 'merged pr #83' },
+  ];
+  function renderPane() {
+    main.innerHTML = PANES[view] || '';
+    if (view === 'history') {
+      const draw = () => {
+        const q = ($('#hq').value || '').toLowerCase();
+        $('#hrows').innerHTML = HISTORY
+          .filter(h => !q || [h.title, h.note, h.model, h.app].join(' ').toLowerCase().includes(q))
+          .map(h => `<div class="listrow"><span class="dim" style="width:88px;flex:none">${esc(h.when)}</span>
+            <span class="grow">${esc(h.title)}</span><span class="dim grow">${esc(h.note)}</span>
+            <span class="tabnum">${esc(h.num)}</span><span class="modelchip">${esc(h.model)}</span>
+            <span class="hicon" title="${esc(h.app)}">${iconOf(h.app)}</span></div>`).join('');
+      };
+      $('#hq').addEventListener('input', draw);
+      draw();
+    }
+  }
+
+  // ————— shared chrome —————
+  function renderTarget() {
+    const s = sessions[sel];
+    if (subSel >= 0 && s.subs[subSel]) {
+      const m = STATE_META[s.subs[subSel].state];
+      targetEl.innerHTML = `<i class="tdot" style="background:${m.color}"></i><span>${sel + 1}·${subSel + 1}</span>`;
+      input.placeholder = 'prompt selected subagent — or / for commands';
+    } else {
+      const m = STATE_META[s.state];
+      targetEl.innerHTML = `<i class="tdot" style="background:${m.color}"></i><span>${sel + 1}</span>` +
+        (s.ctl === 'observe' ? `<span class="obstag">obs</span>` : '');
+      input.placeholder = s.ctl === 'observe'
+        ? (s.noAdopt ? 'observe-only — no control path for this source yet'
+                     : `observe-only — ⏎ adopts into hypervisor tmux (claude --resume ${s.sid || '…'})`)
+        : 'prompt selected session — or / for commands';
+    }
+  }
+  function renderAll() { renderSide(); renderMain(); renderTarget(); }
+
+  function select(i) {
+    sel = (i + sessions.length) % sessions.length;
+    subSel = -1;
+    if (view !== 'session') view = 'session';
+    renderAll();
+    const el = $(`.srow[data-i="${sel}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  }
+  function moveSub(dir) {
+    const s = sessions[sel];
+    if (!s.subs.length) return;
+    if (dir > 0) subSel = Math.min(subSel + 1, s.subs.length - 1);
+    else subSel = subSel <= 0 ? -1 : subSel - 1;
+    if (view !== 'session') view = 'session';
+    renderAll();
+  }
+  function showView(name) {
+    view = name;
+    renderMain();
+  }
+
+  let toastT;
+  function toast(html) {
+    toastEl.innerHTML = html;
+    toastEl.classList.add('show');
+    clearTimeout(toastT);
+    toastT = setTimeout(() => toastEl.classList.remove('show'), 3800);
+  }
+
+  // ————— send / adopt —————
+  function completeSession(i) {
+    const s = sessions[i];
+    s.state = 'done'; s.age = 'now';
+    s.result = '✓ done — response ready to review';
+    s.output = [];
+    renderAll();
+    toast(`<b>●</b> ${esc(s.app)} responded — ${esc(s.title)}`);
+  }
+  function sendTo(i, text) {
+    const s = sessions[i];
+    if (s.fresh) { s.title = text.length > 64 ? text.slice(0, 61) + '…' : text; s.fresh = false; }
+    if (s.log) {
+      if (s.state === 'done' && s.result) {
+        s.log.push({ k: 'agent', t: s.result });
+        (s.output || []).forEach(l => s.log.push({ k: 'agent', t: l }));
+      }
+      s.log.push({ k: 'you', t: text });
+    }
+    s.sent = text; s.state = 'working'; s.output = [];
+    s.tool = 'Read'; s.toolArg = 'session context';
+    s.think = ['reading the new instruction…', 'scanning recent changes…', 'planning the next step…'];
+    s.thinkIdx = 0;
+    clearTimeout(timers.get(i));
+    timers.set(i, setTimeout(() => completeSession(i), 4200 + Math.random() * 2500));
+  }
+  // ————— approvals —————
+  let yolo = false;
+  function approve(i) {
+    const s = sessions[i];
+    if (!s.approval) return false;
+    const cmd = s.approval;
+    s.approval = null;
+    if (!s.log) s.log = buildLog(s);
+    s.log.push({ k: 'tool', t: `approved → ${cmd}` });
+    s.state = 'working';
+    s.tool = 'Bash';
+    s.toolArg = cmd.replace(/^Bash\((.*)\)$/, '$1');
+    s.think = ['running the approved command…', 'watching output for failures', 'will report when finished'];
+    s.thinkIdx = 0;
+    clearTimeout(timers.get(i));
+    timers.set(i, setTimeout(() => completeSession(i), 4200 + Math.random() * 2500));
+    return true;
+  }
+  function approveSel() {
+    const s = sessions[sel];
+    if (approve(sel)) { renderAll(); toast(`⇥ approved — ${esc(s.tool)}(${esc(s.toolArg)})`); }
+    else toast('nothing pending approval on this session');
+  }
+  function setYolo(on) {
+    yolo = on;
+    const b = $('#yolo');
+    b.classList.toggle('on', yolo);
+    b.innerHTML = `yolo <i>${yolo ? 'on' : 'off'}</i>`;
+    if (yolo) {
+      toast('yolo on — auto-approving everything. godspeed.');
+      sessions.forEach((s, i) => {
+        if (s.approval) setTimeout(() => { if (yolo && approve(i)) renderAll(); }, 700 + i * 400);
+      });
+    } else toast('yolo off — approvals wait for ⇥ again');
+  }
+
+  function send() {
+    const s = sessions[sel];
+    if (subSel < 0 && s.ctl === 'observe') {
+      if (s.noAdopt) { toast('no control path for claude.ai yet — browser extension planned'); return; }
+      s.ctl = 'tmux';
+      if (!s.log) s.log = buildLog(s);
+      s.log.push({ k: 'tool', t: `tmux new-session -d -s hv-${sel + 1} 'claude --resume ${s.sid || '…'}'` });
+      renderAll();
+      toast(`adopted as <b>hv-${sel + 1}</b> — now running in the background, keeps working with the lid closed`);
+      return;
+    }
+    const text = input.value.trim();
+    if (!text) return;
+    if (subSel < 0 && s.approval) {
+      // typing at a pending approval = deny with guidance
+      s.approval = null;
+      if (!s.log) s.log = buildLog(s);
+      s.log.push({ k: 'tool', t: 'denied — guidance sent instead' });
+      toast('denied — your guidance goes to the session');
+    }
+    if (subSel >= 0 && s.subs[subSel]) {
+      const x = s.subs[subSel];
+      if (x.log) x.log.push({ k: 'you', t: text });
+      x.task = text; x.state = 'working';
+      setTimeout(() => { x.state = 'done'; renderAll(); }, 4000 + Math.random() * 2500);
+    } else {
+      sendTo(sel, text);
+    }
+    input.value = '';
+    renderAll();
+  }
+
+  // ————— command menu —————
+  function menuItemsFor() {
+    if (menu.step === 'root') {
+      const f = input.value.slice(1).toLowerCase();
+      return ROOT_CMDS.filter(c => c.label.slice(1).startsWith(f));
+    }
+    if (menu.step === 'target') return TARGETS;
+    return MODELS[menu.target].map(m => ({ id: m, label: m, desc: '' }));
+  }
+  function openMenu() { menu.open = true; menu.step = 'root'; menu.cmd = 'subagents'; menu.target = null; menu.active = 0; drawMenu(); }
+  function closeMenu() { menu.open = false; cmdmenu.classList.remove('open'); }
+  function drawMenu() {
+    menu.items = menuItemsFor();
+    menu.active = Math.min(menu.active, Math.max(0, menu.items.length - 1));
+    const who = menu.cmd === 'new' ? 'new session' : 'subagents';
+    cmdcrumb.textContent =
+      menu.step === 'root' ? 'commands' :
+      menu.step === 'target' ? (menu.cmd === 'new' ? 'new session → pick harness' : `subagents → pick target · from "${sessions[sel].title}"`) :
+      `${who} → ${menu.target} → pick model`;
+    cmditems.innerHTML = menu.items.length
+      ? menu.items.map((it, i) =>
+          `<div class="cmditem ${i === menu.active ? 'active' : ''}" data-i="${i}">
+             <span class="cl">${esc(it.label)}</span><span class="cd">${esc(it.desc || '')}</span></div>`).join('')
+      : '<div class="cmditem"><span class="cd">no matching command</span></div>';
+    cmdmenu.classList.add('open');
+  }
+  function spawnSub(target, model, task) {
+    const s = sessions[sel];
+    const sub = { target, model, state: 'working', task: task || 'handoff — ' + s.title };
+    s.subs.push(sub);
+    renderAll();
+    toast(`↳ spawned <b>${esc(target)} · ${esc(model)}</b> ← “${esc(s.title)}”`);
+    setTimeout(() => { sub.state = 'done'; renderAll(); }, 6000 + Math.random() * 3000);
+  }
+  function createSession(target, model) {
+    const app = target === 'claude' ? 'claude code' : target;
+    const busy = sessions.some(x => x.repo === 'gx');
+    const wt = busy ? 'wt-' + (2 + Math.floor(Math.random() * 7)) : null;
+    sessions.push({
+      app, model, title: 'new session — send the first prompt', sent: '—',
+      state: 'input', ask: '? waiting for the first prompt', ctl: 'tmux',
+      repo: 'gx', br: 'main', wt, subs: [], fresh: true,
+      log: [
+        { k: 'tool', t: 'History(2 session summaries attached)' },
+        { k: 'agent', t: 'auth-tokens: “sessions moved to redis-backed tokens, ttl 24h, logout clears both stores”' },
+        { k: 'agent', t: 'sync-backoff: “retries capped at 30s with full jitter to avoid thundering herd”' },
+      ],
+    });
+    select(sessions.length - 1);
+    toast((wt ? `session created in <b>gx</b> — repo busy, spun up worktree <b>${wt}</b>` : 'session created in <b>gx</b>')
+      + ' · context from 2 prior sessions attached');
+  }
+  function planSession() {
+    const s = sessions[sel];
+    s.state = 'working'; s.tool = 'Plan'; s.toolArg = 'drafting approach';
+    s.think = ['breaking the task into ordered steps', 'checking constraints against the codebase', 'estimating scope per step'];
+    s.thinkIdx = 0;
+    clearTimeout(timers.get(sel));
+    timers.set(sel, setTimeout(() => {
+      s.state = 'input'; s.ask = '? plan ready — 6 steps, est. 40m. approve to execute?';
+      renderAll(); toast(`plan ready — <b>${esc(s.title)}</b> waiting on approval`);
+    }, 4500));
+    renderAll();
+    toast(`planning “${esc(s.title)}” — will pause for approval`);
+  }
+  function chooseMenuItem() {
+    const it = menu.items[menu.active];
+    if (!it) return;
+    if (menu.step === 'root') {
+      if (it.id === 'subagents' || it.id === 'new') { menu.cmd = it.id; menu.step = 'target'; menu.active = 0; drawMenu(); return; }
+      closeMenu(); input.value = '';
+      if (it.id === 'broadcast') {
+        toast('prompt queued to all live sessions');
+        sessions.forEach((s, i) => { if (s.state !== 'error' && s.ctl !== 'observe') sendTo(i, 'broadcast: status check — summarize where you are'); });
+        renderAll();
+      } else if (it.id === 'plan') planSession();
+      else if (it.id === 'review') spawnSub('codex', 'gpt-5-codex', 'review the diff — correctness, tests, edge cases');
+      else if (it.id === 'loop') {
+        const s = sessions[sel];
+        s.loop = !s.loop; renderAll();
+        toast(s.loop ? `↻ looping “${esc(s.title)}” every 10m until stopped` : 'loop stopped');
+      } else if (it.id === 'worktree') {
+        const s = sessions[sel];
+        if (!s.repo) { toast('this session has no git workspace — /worktree needs a repo'); return; }
+        s.wt = 'wt-' + (2 + Math.floor(Math.random() * 7));
+        renderAll();
+        toast(`↳ “${esc(s.title)}” moved to fresh worktree <b>${s.wt}</b> — branch preserved`);
+      } else toast(`<b>/${esc(it.id)}</b> — concept only, not wired in this mock`);
+      return;
+    }
+    if (menu.step === 'target') { menu.target = it.id; menu.step = 'model'; menu.active = 0; drawMenu(); return; }
+    closeMenu(); input.value = '';
+    if (menu.cmd === 'new') createSession(menu.target, it.id);
+    else spawnSub(menu.target, it.id);
+  }
+
+  // ————— ⌘K palette —————
+  const paletteEl = $('#palette'), palinput = $('#palinput'), palitemsEl = $('#palitems');
+  let palOpen = false, palActive = 0, palItems = [];
+  const PAL = [
+    { id: 'session',  label: 'session',    desc: 'back to the selected session' },
+    { id: 'history',  label: 'history',    desc: 'finished sessions — searchable, stored locally' },
+    { id: 'usage',    label: 'usage',      desc: 'tokens & cost by model' },
+    { id: 'access',   label: 'access',     desc: 'keys & subscriptions' },
+    { id: 'settings', label: 'settings',   desc: 'notifications · sources · general' },
+    { id: 'subagents', label: '/subagents', desc: 'hand off from the selected session' },
+    { id: 'broadcast', label: '/broadcast', desc: 'prompt every live session' },
+  ];
+  function drawPal() {
+    const f = palinput.value.trim().toLowerCase();
+    palItems = PAL.filter(x => !f || x.label.toLowerCase().includes(f) || x.desc.toLowerCase().includes(f));
+    palActive = Math.min(palActive, Math.max(0, palItems.length - 1));
+    palitemsEl.innerHTML = palItems.length
+      ? palItems.map((it, i) => `<div class="cmditem ${i === palActive ? 'active' : ''}" data-i="${i}">
+           <span class="cl">${esc(it.label)}</span><span class="cd">${esc(it.desc)}</span></div>`).join('')
+      : '<div class="cmditem"><span class="cd">nothing matches</span></div>';
+  }
+  function openPalette() { palOpen = true; palinput.value = ''; palActive = 0; drawPal(); paletteEl.classList.add('open'); palinput.focus(); }
+  function closePalette() { palOpen = false; paletteEl.classList.remove('open'); palinput.blur(); }
+  function choosePal() {
+    const it = palItems[palActive];
+    if (!it) return;
+    closePalette();
+    if (it.id === 'subagents') {
+      showView('session');
+      input.focus(); input.value = '/subagents';
+      menu.open = true; menu.cmd = 'subagents'; menu.step = 'target'; menu.active = 0; drawMenu();
+    } else if (it.id === 'broadcast') {
+      showView('session');
+      toast('prompt queued to all live sessions');
+      sessions.forEach((s, i) => { if (s.state !== 'error' && s.ctl !== 'observe') sendTo(i, 'broadcast: status check — summarize where you are'); });
+      renderAll();
+    } else showView(it.id);
+  }
+  palinput.addEventListener('input', () => { palActive = 0; drawPal(); });
+  palitemsEl.addEventListener('click', e => {
+    const it = e.target.closest('.cmditem[data-i]');
+    if (it) { palActive = +it.dataset.i; choosePal(); }
+  });
+  paletteEl.addEventListener('mousedown', e => { if (e.target === paletteEl) closePalette(); });
+
+  // ————— events —————
+  side.addEventListener('click', e => {
+    if (e.target.closest('#newbtn')) {
+      showView('session');
+      input.focus(); input.value = '/new';
+      menu.open = true; menu.cmd = 'new'; menu.step = 'target'; menu.active = 0; drawMenu();
+      return;
+    }
+    const row = e.target.closest('.srow');
+    if (row) select(+row.dataset.i);
+  });
+  main.addEventListener('click', e => {
+    const sw = e.target.closest('.switch');
+    if (sw) { sw.classList.toggle('on'); return; }
+    const sr = e.target.closest('.subrow');
+    if (sr) { subSel = +sr.dataset.j; renderAll(); }
+  });
+  cmditems.addEventListener('click', e => {
+    const it = e.target.closest('.cmditem[data-i]');
+    if (it) { menu.active = +it.dataset.i; chooseMenuItem(); }
+  });
+  $('#menukey').addEventListener('click', openPalette);
+  $('#ticker').addEventListener('click', () => showView('usage'));
+  $('#yolo').addEventListener('click', () => setYolo(!yolo));
+  input.addEventListener('input', () => {
+    if (input.value.startsWith('/')) {
+      if (!menu.open) openMenu(); else if (menu.step === 'root') drawMenu();
+    } else if (menu.open) closeMenu();
+  });
+
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      palOpen ? closePalette() : openPalette();
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if (palOpen) {
+      if (e.key === 'Escape') closePalette();
+      else if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); palActive = Math.min(palActive + 1, palItems.length - 1); drawPal(); }
+      else if (e.key === 'ArrowUp'   || e.key === 'k') { e.preventDefault(); palActive = Math.max(palActive - 1, 0); drawPal(); }
+      else if (e.key === 'Enter')     { e.preventDefault(); choosePal(); }
+      return;
+    }
+
+    const ae = document.activeElement;
+    if (ae !== input && ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
+      if (e.key === 'Escape') ae.blur();
+      return;
+    }
+    const inInput = ae === input;
+
+    if (e.key === 'Escape') {
+      if (menu.open) {
+        if (menu.step === 'model') { menu.step = 'target'; drawMenu(); }
+        else if (menu.step === 'target') { menu.step = 'root'; drawMenu(); }
+        else closeMenu();
+      } else if (inInput) input.blur();
+      else if (view !== 'session') showView('session');
+      return;
+    }
+
+    if (menu.open && inInput) {
+      const jk = menu.step !== 'root';
+      if (e.key === 'ArrowDown' || (jk && e.key === 'j')) { e.preventDefault(); menu.active = Math.min(menu.active + 1, menu.items.length - 1); drawMenu(); return; }
+      if (e.key === 'ArrowUp'   || (jk && e.key === 'k')) { e.preventDefault(); menu.active = Math.max(menu.active - 1, 0); drawMenu(); return; }
+      if (e.key === 'Enter')     { e.preventDefault(); chooseMenuItem(); return; }
+    }
+    if (inInput) {
+      if (e.key === 'Enter') { e.preventDefault(); send(); }
+      return;
+    }
+
+    if (e.key === 'Tab') { e.preventDefault(); approveSel(); return; }
+    if (/^[1-9]$/.test(e.key)) { const n = +e.key - 1; if (n < sessions.length) select(n); return; }
+    if (e.key === 'ArrowDown'  || e.key === 'j') { e.preventDefault(); select(sel + 1); return; }
+    if (e.key === 'ArrowUp'    || e.key === 'k') { e.preventDefault(); select(sel - 1); return; }
+    if (e.key === 'ArrowRight' || e.key === 'l') { e.preventDefault(); moveSub(1); return; }
+    if (e.key === 'ArrowLeft'  || e.key === 'h') { e.preventDefault(); moveSub(-1); return; }
+    if (e.key === 'Enter') { e.preventDefault(); const s = sessions[sel]; (subSel < 0 && s.ctl === 'observe') ? send() : input.focus(); return; }
+    if (e.key === '/') { e.preventDefault(); input.focus(); input.value = '/'; openMenu(); return; }
+    if (e.key.length === 1 && /\S/.test(e.key)) input.focus();
+  });
+
+  // thinking cycler — updates the visible transcript's live block
+  setInterval(() => {
+    sessions.forEach(s => {
+      if (s.state === 'working' && s.think) s.thinkIdx = (s.thinkIdx + 1) % s.think.length;
+    });
+    if (view === 'session' && subSel < 0 && sessions[sel].state === 'working') {
+      const el = $('#nowblock');
+      if (el) el.innerHTML = nowBlock(sessions[sel]);
+    }
+  }, 3200);
+
+  renderAll();
+})();
+</script>
