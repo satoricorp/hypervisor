@@ -31,3 +31,4 @@ notify = "6"
 rusqlite = { version = "0.32", features = ["bundled"] }
 glob = "0.3"
 chrono = "0.4"
+ureq = "2"

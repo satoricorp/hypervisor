@@ -98,8 +98,15 @@ pub fn spawn(harness: &str, model: &str, cwd: &str) -> Result<Spawned, String> {
             )
         }
         "codex" => (format!("codex -m {}", shell_quote(model)), None),
-        "cursor" | "opencode" => {
-            return Err("not wired until M2b".into());
+        "opencode" => {
+            // Confirmed: `opencode --model provider/model` (also -m).
+            (
+                format!("opencode --model {}", shell_quote(model)),
+                None,
+            )
+        }
+        "cursor" => {
+            return Err("cursor is watch-only".into());
         }
         other => return Err(format!("unknown harness: {other}")),
     };
@@ -134,12 +141,10 @@ mod tests {
     use std::env;
 
     #[test]
-    fn cursor_not_wired_and_tmux_socket_works() {
+    fn cursor_watch_only_and_tmux_socket_works() {
         let home = env::var("HOME").unwrap();
         let err = spawn("cursor", "x", &home).unwrap_err();
-        assert!(err.contains("M2b"));
-        let err = spawn("opencode", "x", &home).unwrap_err();
-        assert!(err.contains("M2b"));
+        assert!(err.contains("watch-only"), "{err}");
 
         let name = format!("hv-{}", short_id());
         tmux(&[
@@ -154,5 +159,13 @@ mod tests {
         .expect("tmux spawn");
         send(&name, "echo hv-ok").expect("send");
         kill(&name).expect("kill");
+    }
+
+    #[test]
+    fn opencode_spawn_arm_builds_tmux_session() {
+        let home = env::var("HOME").unwrap();
+        let spawned = spawn("opencode", "opencode/big-pickle", &home).expect("opencode spawn");
+        assert!(spawned.tmux_name.starts_with("hv-"));
+        let _ = kill(&spawned.tmux_name);
     }
 }

@@ -1,6 +1,7 @@
 pub mod claude_code;
 pub mod codex;
 pub mod cursor;
+pub mod opencode;
 
 use serde::Serialize;
 use std::path::Path;

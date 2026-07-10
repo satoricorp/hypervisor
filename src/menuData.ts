@@ -51,7 +51,12 @@ export const TARGETS = [
 ];
 
 export const MODELS: Record<string, string[]> = {
-  opencode: ["claude-sonnet-5", "gpt-5", "glm-5.2", "qwen3-coder"],
+  opencode: [
+    "opencode/big-pickle",
+    "opencode/nemotron-3-ultra-free",
+    "openai/gpt-5",
+    "openai/gpt-5-mini",
+  ],
   codex: ["gpt-5-codex", "gpt-5", "o4-mini"],
   claude: [
     "claude-fable-5",

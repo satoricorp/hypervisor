@@ -1,6 +1,7 @@
 use crate::adapters::claude_code::ClaudeCodeAdapter;
 use crate::adapters::codex::CodexAdapter;
 use crate::adapters::cursor::CursorAdapter;
+use crate::adapters::opencode::OpencodeAdapter;
 use crate::adapters::{home_dir, Adapter, Session};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
@@ -13,6 +14,7 @@ pub enum Harness {
     ClaudeCode,
     Codex,
     Cursor,
+    Opencode,
 }
 
 impl Harness {
@@ -21,9 +23,17 @@ impl Harness {
             Harness::ClaudeCode => "claude code",
             Harness::Codex => "codex",
             Harness::Cursor => "cursor",
+            Harness::Opencode => "opencode",
         }
     }
 }
+
+const ALL: [Harness; 4] = [
+    Harness::ClaudeCode,
+    Harness::Codex,
+    Harness::Cursor,
+    Harness::Opencode,
+];
 
 /// Scan all harnesses (or a subset) and return sessions sorted by mtime desc.
 pub fn scan_sessions(
@@ -34,13 +44,14 @@ pub fn scan_sessions(
     let mut sessions = Vec::new();
     let harnesses: Vec<Harness> = match only {
         Some(h) => vec![h],
-        None => vec![Harness::ClaudeCode, Harness::Codex, Harness::Cursor],
+        None => ALL.to_vec(),
     };
     for h in harnesses {
         let part = match h {
             Harness::ClaudeCode => ClaudeCodeAdapter.scan(max_age_hours, limit),
             Harness::Codex => CodexAdapter.scan(max_age_hours, limit),
             Harness::Cursor => CursorAdapter.scan(max_age_hours, limit),
+            Harness::Opencode => OpencodeAdapter.scan(max_age_hours, limit),
         };
         sessions.extend(part);
     }
@@ -65,6 +76,12 @@ fn source_roots() -> Vec<(Harness, PathBuf)> {
                 "{home}/Library/Application Support/Cursor/User/globalStorage"
             )),
         ),
+        (
+            Harness::Opencode,
+            // DECISION: watch the opencode dir recursively like the others.
+            // If log/ churn is noisy in practice, narrow to opencode.db*.
+            PathBuf::from(format!("{home}/.local/share/opencode")),
+        ),
     ]
 }
 
@@ -76,6 +93,8 @@ fn classify_path(path: &Path) -> Option<Harness> {
         Some(Harness::Codex)
     } else if s.contains("/Cursor/") || s.contains("state.vscdb") {
         Some(Harness::Cursor)
+    } else if s.contains("/.local/share/opencode") {
+        Some(Harness::Opencode)
     } else {
         None
     }
@@ -115,7 +134,7 @@ where
     let mut pending: HashMap<Harness, Instant> = HashMap::new();
     // Cache per-harness so we only rescan the harness that changed.
     let mut by_harness: HashMap<Harness, Vec<Session>> = HashMap::new();
-    for h in [Harness::ClaudeCode, Harness::Codex, Harness::Cursor] {
+    for h in ALL {
         by_harness.insert(h, scan_sessions(max_age_hours, limit, Some(h)));
     }
 
@@ -175,7 +194,7 @@ where
         }
 
         let mut merged = Vec::new();
-        for h in [Harness::ClaudeCode, Harness::Codex, Harness::Cursor] {
+        for h in ALL {
             if let Some(part) = by_harness.get(&h) {
                 merged.extend(part.iter().cloned());
             }

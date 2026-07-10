@@ -6,6 +6,7 @@ Read-only adapters over each harness's on-disk session state:
   claude code   ~/.claude/projects/<proj>/<session>.jsonl        transcripts (JSONL)
   codex         ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl     rollouts (JSONL)
   cursor        ~/Library/Application Support/Cursor/User/       state.vscdb (sqlite, best-effort)
+  opencode      ~/.local/share/opencode/opencode.db               sqlite (drizzle)
 
 No dependencies. Never writes to any harness file.
 
@@ -262,6 +263,115 @@ def scan_cursor(max_age_h, limit):
     out.sort(key=lambda x: -x["mtime"])
     return out[:limit]
 
+def _model_display(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    try:
+        v = json.loads(raw)
+    except (ValueError, TypeError):
+        return raw
+    pid = v.get("providerID") or ""
+    mid = v.get("id") or ""
+    if pid and mid:
+        return f"{pid}/{mid}"
+    return mid or ""
+
+def _tool_hint(inp):
+    if not isinstance(inp, dict):
+        return ""
+    for key in ("filePath", "file_path", "path", "command", "pattern", "description"):
+        val = inp.get(key)
+        if isinstance(val, str) and val:
+            return val
+        if val is not None and not isinstance(val, (dict, list)):
+            s = str(val)
+            if s and s != "null":
+                return s
+    for val in inp.values():
+        if isinstance(val, str) and val:
+            return val
+    return ""
+
+def scan_opencode(max_age_h, limit):
+    """opencode 1.17+: ~/.local/share/opencode/opencode.db (ignore legacy storage/)."""
+    db = os.path.join(HOME, ".local/share/opencode", "opencode.db")
+    if not os.path.exists(db):
+        return []
+    now = time.time()
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1)
+        rows = con.execute(
+            "SELECT id, parent_id, directory, title, model, time_created, time_updated, time_archived "
+            "FROM session ORDER BY time_updated DESC LIMIT ?",
+            (limit * 4,),
+        ).fetchall()
+    except sqlite3.Error as e:
+        print(f"[scan_opencode] {e}", file=sys.stderr)
+        return []
+
+    sidechains, candidates = {}, []
+    for sid, parent_id, directory, title, model, _created, updated, archived in rows:
+        if archived is not None:
+            continue
+        mtime = (updated or 0) / 1000.0
+        if not mtime or now - mtime > max_age_h * 3600:
+            continue
+        if parent_id:
+            sidechains[parent_id] = sidechains.get(parent_id, 0) + 1
+            continue
+        candidates.append((sid, directory or "", title or "", _model_display(model), mtime))
+
+    out = []
+    for sid, directory, title, model, mtime in candidates:
+        s = {
+            "harness": "opencode", "sid": sid,
+            "title": title, "model": model,
+            "cwd": directory, "branch": "",
+            "last_user": "", "activity": "", "last_assistant": "",
+            "mtime": mtime, "src": db, "last_role": "", "sidechains": sidechains.get(sid, 0),
+        }
+        try:
+            parts = con.execute(
+                "SELECT m.data, p.data FROM part p "
+                "JOIN message m ON m.id = p.message_id "
+                "WHERE p.session_id = ? "
+                "ORDER BY p.time_created ASC, p.id ASC",
+                (sid,),
+            ).fetchall()
+        except sqlite3.Error:
+            parts = []
+        for msg_raw, part_raw in parts:
+            try:
+                msg = json.loads(msg_raw) if msg_raw else {}
+                part = json.loads(part_raw) if part_raw else {}
+            except (ValueError, TypeError):
+                continue
+            role = msg.get("role") or ""
+            ptype = part.get("type") or ""
+            if ptype == "text":
+                text = part.get("text") or ""
+                if text and not is_noise(text):
+                    if role == "user":
+                        s["last_user"] = text
+                        s["last_role"] = "user"
+                    elif role == "assistant":
+                        s["last_assistant"] = text
+                        s["last_role"] = "assistant"
+            elif ptype == "tool":
+                name = part.get("tool") or "tool"
+                inp = (part.get("state") or {}).get("input") or {}
+                hint = _tool_hint(inp)
+                s["activity"] = f"⚒ {name}({clip(hint, 46)})"
+                s["last_role"] = "assistant"
+        out.append(s)
+    try:
+        con.close()
+    except Exception:
+        pass
+    out.sort(key=lambda x: -x["mtime"])
+    return out[:limit]
+
 # ---------------------------------------------------------------- render
 
 C = {"working": "\x1b[33m", "done": "\x1b[32m", "stalled": "\x1b[31m"}
@@ -301,7 +411,7 @@ def render(sessions, width):
 
 def scan_all(args):
     sessions = []
-    for fn in (scan_claude, scan_codex, scan_cursor):
+    for fn in (scan_claude, scan_codex, scan_cursor, scan_opencode):
         try:
             sessions += fn(args.max_age, args.limit)
         except Exception as e:  # an adapter must never take down the board

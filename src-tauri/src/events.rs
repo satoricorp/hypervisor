@@ -73,6 +73,8 @@ fn control_for(sid: &str, harness: &str, owned: &HashMap<String, String>) -> Str
         "tmux".into()
     } else if harness == "cursor" {
         "watch".into()
+    } else if harness == "opencode" {
+        "api".into()
     } else {
         "observe".into()
     }
@@ -268,12 +270,44 @@ pub fn send_prompt(
     sid: String,
     text: String,
 ) -> Result<(), String> {
-    let map = state.owned.lock().unwrap();
-    let target = map.get(&sid).cloned().ok_or_else(|| {
-        "session is observe-only — press ⏎ to adopt it first".to_string()
-    })?;
-    drop(map);
-    tmux::send(&target, &text)
+    {
+        let map = state.owned.lock().unwrap();
+        if let Some(target) = map.get(&sid).cloned() {
+            drop(map);
+            return tmux::send(&target, &text);
+        }
+    }
+
+    // Non-owned: opencode uses the api tier; everything else stays observe-only.
+    let sess = {
+        let snap = state.snapshot.lock().unwrap();
+        snap.iter().find(|s| s.sid == sid).cloned()
+    };
+    let sess = match sess {
+        Some(s) => s,
+        None => {
+            let owned = state.owned.lock().unwrap().clone();
+            let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
+            to_wire(&sessions, &owned)
+                .into_iter()
+                .find(|s| s.sid == sid)
+                .ok_or_else(|| format!("session {sid} not found"))?
+        }
+    };
+
+    if sess.harness == "opencode" {
+        const IDLE_GUARD_S: f64 = 60.0;
+        let idle = now_secs() - sess.mtime;
+        if idle < IDLE_GUARD_S {
+            return Err(format!(
+                "active {idle:.0}s ago — it may still be open in another terminal. close it \
+                 there, or let it go idle, then prompt."
+            ));
+        }
+        return crate::control::opencode::prompt_async(&sid, &sess.cwd, &text);
+    }
+
+    Err("session is observe-only — press ⏎ to adopt it first".into())
 }
 
 #[tauri::command]

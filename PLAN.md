@@ -185,7 +185,7 @@ spike is their test oracle; UI second, binding them together in M2).
   AC: adopt a bare terminal session and then successfully prompt it; adopting
   an active session is refused with an explanatory toast.
 
-- [ ] **M2c — opencode tier.** opencode adapter (storage at
+- [x] **M2c — opencode tier.** opencode adapter (storage at
   `~/.local/share/opencode/` — sqlite `opencode.db` + session/message dirs;
   schema needs exploration before the task file is written), `/new` spawn via
   tmux, and the `api` control tier over `opencode serve` HTTP (confirm

@@ -151,5 +151,51 @@ command handlers). No other new dependencies.
 ## Evidence
 
 ```
-(builder fills this in)
+OPENCODE_SIDEBAR:
+  harness=opencode sid=ses_0b312152dffeX1A7AGj7NSBcjp title='Pong'
+  model=openrouter/z-ai/glm-5.2 state=done cwd=/Users/joe/git/hypervisor
+  last_user='hypervisor m2c ping — reply with: ok'
+  last_assistant='ok'
+  control=api · background (non-owned)
+
+OPENCODE_HTTP_PROMPT: POST /session/{sid}/prompt_async → HTTP 204
+  verified via opencode export:
+    user ['reply with exactly one word: pong'] / assistant ['pong']
+    user ['hypervisor m2c ping — reply with: ok'] / assistant ['ok']
+  also: control::opencode::prompt_async ok in live test
+
+OPENCODE_IDLE_GUARD_REFUSAL:
+active 43s ago — it may still be open in another terminal. close it there, or let it go idle, then prompt.
+
+OPENCODE_NEW_TMUX: hv-8230a294 (and hv-838e07ca in earlier run)
+OPENCODE_NEW_CORRELATE (manual, same directory+time floor as owned::find_opencode_sid):
+  ses_0b30f8951ffeq4BZqIkrSHYKKS|/Users/joe/git/hypervisor|1783702255278
+
+$ python3 spike/compare.py
+compared 19 sessions (19 python / 19 rust) · 0 lenient diffs
+OK
+
+$ cargo test --lib
+running 9 tests … ok (adapters::opencode ×3, control::opencode ×2, tmux, adopt)
+
+$ cargo build --bin hypervisor   # ok (default-run = "hypervisor" intact)
+$ bunx tsc --noEmit              # ok
 ```
+
+`// DECISION:` comments:
+- Port 14096 (not 4096) so a user-started `opencode serve` can't collide.
+- Open opencode.db with `mode=ro` only — `immutable=1` freezes a stale WAL
+  snapshot and drops recent message/part rows.
+- Resolve `opencode` binary via `/bin/zsh -lic which` so homebrew PATH works
+  under Tauri.
+- Session has no `time_created` field; for brand-new sessions
+  `mtime` (time_updated/1000) equals time_created at creation, so the
+  spawn_time floor still correlates.
+- Watch `~/.local/share/opencode` recursively like the other harnesses.
+
+M3-relevant endpoints (recorded, not built):
+- `GET /permission`
+- `POST /permission/{requestID}/reply`
+- `GET /event` (SSE)
+
+M3 task file needed.

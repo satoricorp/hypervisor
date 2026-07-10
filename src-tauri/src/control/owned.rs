@@ -2,6 +2,7 @@
 //! Correlate a freshly spawned tmux session with its transcript file.
 
 use crate::adapters::{file_mtime, home_dir};
+use crate::registry::{scan_sessions, Harness};
 use chrono::Local;
 use std::collections::HashMap;
 use std::fs;
@@ -54,8 +55,25 @@ fn find_new_sid(harness: &str, cwd: &str, spawn_time: f64) -> Option<String> {
     match harness {
         "claude" | "claude code" => find_claude_sid(cwd, spawn_time),
         "codex" => find_codex_sid(spawn_time),
+        "opencode" => find_opencode_sid(cwd, spawn_time),
         _ => None,
     }
+}
+
+fn find_opencode_sid(cwd: &str, spawn_time: f64) -> Option<String> {
+    // DECISION: Session has no time_created field; for brand-new sessions
+    // mtime (time_updated/1000) equals time_created at creation, so the
+    // spawn_time floor still correlates correctly.
+    let sessions = scan_sessions(48.0, 32, Some(Harness::Opencode));
+    sessions
+        .into_iter()
+        .filter(|s| s.cwd == cwd && s.mtime + 1.0 >= spawn_time)
+        .max_by(|a, b| {
+            a.mtime
+                .partial_cmp(&b.mtime)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|s| s.sid)
 }
 
 fn find_claude_sid(cwd: &str, spawn_time: f64) -> Option<String> {
