@@ -96,4 +96,65 @@ because the board moved after you read it. Change:
 
 ## Evidence
 
-(builder fills this in — an empty Evidence section means the milestone is not done)
+### DECISION: `hvscan cmd` harness
+
+Preferred headless subcommand (not a temporary tauri command). Loads
+`~/Library/Application Support/com.joe.hypervisor/owned.json`, scans,
+detects approvals, routes through the same `approvals::{approve,deny}` /
+`tmux::send` / `opencode::prompt_async` paths. CLI stable numbers are
+sid-sorted for deterministic cross-invocation numbering; the running app
+uses first-sight monotonic IDs in `AppState.ids`.
+
+### Grammar / stable ids tests
+
+`cargo test --lib` → **23 passed**, 3 ignored. Includes:
+- `grammar::tests::{parses_every_arm, letter_and_number_tokens_disjoint,
+  formatter_snapshot, plan_prompt_vs_deny}`
+- `stable_ids::tests::{numbers_stable_across_calls, letters_never_reuse_and_are_alpha,
+  letters_cannot_collide_with_numbers}`
+
+Formatter snapshot:
+```
+● 1 working · ● 1 done · ● 1 needs you
+A · 3 · build script — wants: Bash(./scripts_build.sh)
+```
+
+### `hvscan cmd` live
+
+```
+$ hvscan cmd "status"
+● 7 working · ● 41 done · ● 1 needs you
+A · 45 · Run hi.sh and show output — wants: Bash(bash hi.sh)
+
+$ hvscan cmd "29: reply with exactly M7G_PONG and nothing else"
+→ 29 · ae93e6d1-… — sent
+# pane: ❯ reply with exactly M7G_PONG … / ⏺ M7G_PONG
+
+$ hvscan cmd "a"
+→ A · 45 · Run hi.sh and show output — approved
+# opencode tool state status=completed, output=hello-m7g
+```
+
+(Opencode trigger: `/tmp/hv-m3-opencode-test` with `permission.bash=ask`.)
+
+### Window close / backend survives
+
+- `CloseRequested` → `api.prevent_close()` + `window.hide()`; `RunEvent::Reopen`
+  shows + focuses main window; `Exit` logs any owned still-`working` sessions
+  then shuts down opencode serve.
+- Detection log while backend running:
+  `[approval] detected sid=ses_… wants=Bash(bash hi.sh)`
+  (tick path independent of window visibility).
+
+### Sidebar stable numbers
+
+Wire gains `n` + `letter`. Sidebar keycap renders `s.n`; digit keys `1`–`9`
+select by stable `n` (not row index). Numbers stay with the sid across
+mtime re-sorts (first-sight map in `StableIds`).
+
+### Verification
+
+- `python3 spike/compare.py` → OK (28 sessions, 0 diffs)
+- `bunx tsc --noEmit` → OK
+- `cargo test --lib` → 23 passed, 3 ignored
+- `npm run tauri dev` → vite ready, `Running target/debug/hypervisor`

@@ -29,7 +29,7 @@ export function Sidebar() {
             <span className={`status ${m.cls}`}>
               <i className="dot" />
             </span>
-            <span className="num">{i < 9 ? i + 1 : "·"}</span>
+            <span className="num">{s.n != null ? s.n : i < 9 ? i + 1 : "·"}</span>
             <span className="t">{s.title}</span>
             <span className="m">
               {s.approval ? "⏸ approval · " : ""}

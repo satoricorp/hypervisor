@@ -1,11 +1,24 @@
-//! hvscan — CLI over the session adapters (M1 oracle target).
+//! hvscan — CLI over the session adapters (M1 oracle target) + grammar (M7g).
 //!
 //! Flags: --json, --max-age <hours>, --limit <n>, --watch
+//! Subcommand: cmd "<text>" — shared grammar harness
 
-use hypervisor_lib::{scan_sessions, watch_sessions_cli};
+use hypervisor_lib::{run_grammar_cmd, scan_sessions, watch_sessions_cli};
 
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+
+    // M7g: `hvscan cmd "status"`
+    if args.peek().map(|s| s.as_str()) == Some("cmd") {
+        args.next();
+        let text = args.next().unwrap_or_default();
+        if text.is_empty() {
+            eprintln!("usage: hvscan cmd \"<text>\"");
+            std::process::exit(2);
+        }
+        std::process::exit(run_grammar_cmd(&text));
+    }
+
     let mut json = false;
     let mut watch = false;
     let mut max_age: f64 = 48.0;
@@ -29,7 +42,7 @@ fn main() {
             }
             "-h" | "--help" => {
                 eprintln!(
-                    "usage: hvscan [--json] [--watch] [--max-age HOURS] [--limit N]"
+                    "usage: hvscan [--json] [--watch] [--max-age HOURS] [--limit N]\n       hvscan cmd \"<text>\""
                 );
                 return;
             }

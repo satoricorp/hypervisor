@@ -44,6 +44,10 @@ export interface Session {
   sid?: string;
   cwd?: string;
   sidechains?: number;
+  /** Stable session number from backend (M7g). */
+  n?: number;
+  /** Pending approval letter A–Z (M7g). */
+  letter?: string | null;
   loop?: boolean;
   fresh?: boolean;
   log?: LogEntry[];

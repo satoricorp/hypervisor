@@ -20,6 +20,8 @@ export interface SessionWire {
   sidechains: number;
   control: string;
   approval?: string | null;
+  n?: number;
+  letter?: string | null;
 }
 
 function mapState(state: string): SessionState {
@@ -67,6 +69,8 @@ export function wireToSession(w: SessionWire): Session {
     age: w.age,
     sidechains: w.sidechains || 0,
     approval: w.approval ?? null,
+    n: w.n,
+    letter: w.letter ?? null,
     subs: [],
     log,
   };

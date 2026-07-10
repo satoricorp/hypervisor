@@ -233,7 +233,7 @@ with Tab and proceeds. *Open AC closed in M3x (live pane + approve/deny proof).*
   adapter health line in the statusbar, sidebar overflow count, subagent
   rows populated or honestly hidden. Task file: `tasks/H3.md`.
 
-- [ ] **M7g — the grammar core.** Extracted from M7 so remote doesn't wait on
+- [x] **M7g — the grammar core.** Extracted from M7 so remote doesn't wait on
   tray/notification plumbing: the shared backend grammar
   (`status` / letters / `N:` / `nudge N`), stable session numbers + approval
   letters (see design/remote.md §stable ids), window close hides instead of

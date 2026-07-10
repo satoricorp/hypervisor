@@ -115,8 +115,9 @@ export function useKeyboard() {
         return;
       }
       if (/^[1-9]$/.test(e.key)) {
-        const n = +e.key - 1;
-        if (n < state.sessions.length) dispatch({ type: "SELECT", i: n });
+        const want = +e.key;
+        const idx = state.sessions.findIndex((s) => s.n === want);
+        if (idx >= 0) dispatch({ type: "SELECT", i: idx });
         return;
       }
       if (e.key === "ArrowDown" || e.key === "j") {

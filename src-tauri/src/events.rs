@@ -5,6 +5,7 @@ use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::owned::OwnedMap;
 use crate::control::{opencode, owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
+use crate::stable_ids::{self, StableIds};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -45,6 +46,10 @@ pub struct SessionWire {
     pub sidechains: u32,
     pub control: String,
     pub approval: Option<String>,
+    /// Stable session number (M7g) — process-lifetime, not sidebar position.
+    pub n: u32,
+    /// Pending approval letter A–Z when needs_you (M7g).
+    pub letter: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -96,6 +101,8 @@ pub struct AppState {
     /// Keys already auto-approved this yolo session (request id / fingerprint)
     /// so we don't re-toast or hammer.
     pub yolo_seen: Mutex<std::collections::HashSet<String>>,
+    /// Stable session numbers + approval letters (M7g).
+    pub ids: Mutex<StableIds>,
 }
 
 fn now_secs() -> f64 {
@@ -130,6 +137,7 @@ fn to_wire(
     sessions: &[Session],
     owned: &OwnedMap,
     approvals: &HashMap<String, PendingApproval>,
+    ids: &mut StableIds,
 ) -> Vec<SessionWire> {
     sessions
         .iter()
@@ -140,6 +148,8 @@ fn to_wire(
             } else {
                 s.state.clone()
             };
+            let n = ids.number_for(&s.sid);
+            let letter = ids.letter_of_sid(&s.sid).map(|c| c.to_string());
             SessionWire {
                 harness: s.harness.clone(),
                 sid: s.sid.clone(),
@@ -158,6 +168,8 @@ fn to_wire(
                 sidechains: s.sidechains,
                 control: control_for(&s.sid, &s.harness, owned),
                 approval,
+                n,
+                letter,
             }
         })
         .collect()
@@ -168,6 +180,7 @@ fn merge_pending(
     owned: &OwnedMap,
     pending: &HashMap<String, PendingOwned>,
     approvals: &HashMap<String, PendingApproval>,
+    ids: &mut StableIds,
 ) -> Vec<SessionWire> {
     let seen: std::collections::HashSet<_> = wire.iter().map(|s| s.sid.clone()).collect();
     for (sid, p) in pending {
@@ -183,6 +196,8 @@ fn merge_pending(
         } else {
             "done".into()
         };
+        let n = ids.number_for(sid);
+        let letter = ids.letter_of_sid(sid).map(|c| c.to_string());
         wire.insert(
             0,
             SessionWire {
@@ -203,6 +218,8 @@ fn merge_pending(
                 sidechains: 0,
                 control: "tmux".into(),
                 approval,
+                n,
+                letter,
             },
         );
     }
@@ -218,6 +235,22 @@ fn apply_approvals_to_snapshot(
     let owned = lock(&state.owned).clone();
     let pending = lock(&state.pending).clone();
     let approvals = lock(&state.approvals).clone();
+    // Sync approval letters before building wire.
+    {
+        let mut live = HashMap::new();
+        for (sid, p) in &approvals {
+            live.insert(
+                sid.clone(),
+                stable_ids::approval_identity(
+                    sid,
+                    &p.source,
+                    p.fingerprint.as_deref(),
+                    &p.text,
+                ),
+            );
+        }
+        lock(&state.ids).sync_approvals(&live);
+    }
     let sessions = match sessions {
         Some(s) => s,
         None => {
@@ -237,11 +270,13 @@ fn apply_approvals_to_snapshot(
     }
     let total = sessions.len();
     let capped: Vec<Session> = sessions.into_iter().take(LIMIT).collect();
+    let mut ids = lock(&state.ids);
     let wire = merge_pending(
-        to_wire(&capped, &owned, &approvals),
+        to_wire(&capped, &owned, &approvals, &mut ids),
         &owned,
         &pending,
         &approvals,
+        &mut ids,
     );
     (wire, total)
 }
@@ -383,6 +418,12 @@ fn refresh_approvals(state: &AppState) -> Vec<(String, String)> {
         *lock(&state.approvals) = still;
     } else {
         lock(&state.yolo_seen).clear();
+        // Log newly detected approvals (M7g window-closed proof).
+        for (sid, p) in &next {
+            if !prev.contains_key(sid) {
+                eprintln!("[approval] detected sid={sid} wants={}", p.text);
+            }
+        }
         *lock(&state.approvals) = next;
     }
 
@@ -656,7 +697,7 @@ pub fn send_prompt(
                     scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None)
                 }
             };
-            to_wire(&sessions, &owned, &approvals)
+            to_wire(&sessions, &owned, &approvals, &mut lock(&state.ids))
                 .into_iter()
                 .find(|s| s.sid == sid)
                 .ok_or_else(|| format!("session {sid} not found"))?
