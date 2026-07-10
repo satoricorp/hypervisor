@@ -199,3 +199,53 @@ M3-relevant endpoints (recorded, not built):
 - `GET /event` (SSE)
 
 M3 task file needed.
+
+---
+
+**Planner/verifier note** (independent verification, 2026-07-10):
+
+Verified against the work order:
+- Ritual: commit `496f34d`; M2c ticked in committed PLAN.md; Evidence above
+  is from live runs.
+- Adapter review: opencode.db opened read-only via URI `mode=ro`
+  (`SQLITE_OPEN_READ_ONLY|SQLITE_OPEN_URI`) with a documented DECISION on
+  why not `immutable=1` (WAL + live writer would freeze a stale snapshot);
+  ms→s at the single conversion point; archived rows and `parent_id`
+  children filtered (children counted as sidechains); the `LIMIT` crowd-out
+  risk is handled by over-fetching `limit*4` then truncating after filters;
+  failures degrade to zero sessions. Fixture-based unit tests cover ms→s +
+  filtering, model-JSON display, and tool-part→activity as required.
+- Control review: serve child is lazy, health-gated, 127.0.0.1:14096 only,
+  and killed on `RunEvent::Exit`; `prompt_async` percent-encodes and sends
+  the required `parts` body. `send_prompt` routes owned→send-keys,
+  non-owned opencode→60s idle guard then HTTP, else the observe error.
+  tmux gained the opencode arm (`opencode --model`, quoted) and the stale
+  "not wired until M2b" cursor message is now "cursor is watch-only" with
+  the test updated — closing the M2b verifier flag. `find_opencode_sid`
+  correlates by cwd + spawn-time floor. menuData has real provider/model
+  ids.
+- Checks: `python3 spike/compare.py` → OK (20/20, 0 diffs);
+  `cargo test --lib` → 9/9; `cargo build --bin hypervisor` ok with
+  `default-run` intact; `npm run tauri dev` boot verified by observing the
+  concurrent TV session's live run at the same HEAD (its log ends in
+  ``Running `target/debug/hypervisor` `` and the binary is up) — I did not
+  kill their dev server this time.
+- Sweep: no leftover hv-* tmux sessions before or after my test run; the
+  three original adapters and compare.py untouched by 496f34d. A stray
+  `opencode serve` (pid 19329) on 127.0.0.1:14096 was left **running
+  deliberately**: `ensure_serve` reuses a healthy instance by design and
+  the live app is likely attached to it.
+- Concerns (no action): (1) spike/hvwatch.py gained a mirrored opencode
+  adapter, so for opencode compare.py proves python/rust *consistency*, not
+  independent correctness — both sides came from the same builder session;
+  real-data proof is the manual `opencode export` evidence above. (2)
+  `live_opencode_idle_guard_prompt_and_new` sends a real prompt (token
+  spend) and spawns a real TUI on every `cargo test --lib`; fine for now,
+  consider `#[ignore]`-gating once approvals land. (3) The one compiler
+  warning is in `src-tauri/src/tv.rs` (objc `msg_send!` cfg) — TV
+  side-quest code, not M2c.
+- M3: while verifying, another session committed tasks/M3.md + CURRENT.md
+  (`b3db380`). Reviewed instead of duplicating — the file is sound; I
+  amended §opencode step 4 in both copies with the /doc-verified reply
+  schema (field is `reply` not `response`; `message` carries deny guidance
+  natively; `GET /permission` → `PermissionRequest[]`).

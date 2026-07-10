@@ -49,9 +49,14 @@ header comment: `GET /permission`, `POST /permission/{requestID}/reply`,
    default agent auto-allows everything, create a test agent/config with
    `permission: { bash: "ask" }` in the project's opencode config. Record
    what worked in Evidence.
-4. Approve/deny: `POST /permission/{requestID}/reply` — likely
-   `{"response": "once" | "always" | "reject"}`; verify via /doc. Deny with
-   guidance = reject + `prompt_async` the guidance text.
+4. Approve/deny: `POST /permission/{requestID}/reply`, body
+   `{"reply": "once" | "always" | "reject", "message?": "…"}` — verified
+   against /doc on this machine (planner note: the field is `reply`, NOT
+   `response`; `reply` is the only required key). Deny with guidance is
+   native: `{"reply": "reject", "message": "<guidance>"}` — no separate
+   `prompt_async` needed. `GET /permission` returns an array of
+   `PermissionRequest {id, sessionID, permission, patterns, metadata,
+   always, tool}` — `sessionID` maps the request to a sidebar row.
 
 ### tmux tier (claude code, codex — owned sessions only)
 
