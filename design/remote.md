@@ -34,15 +34,20 @@ The trusted channel. Full remote control, including approvals.
 - The mobile page: one static HTML file served from the same server. Same
   design tokens as the app, but **a text interface, not a shrunken
   dashboard** — phone UX is reading a feed and typing one line:
-  1. A single chronological feed: timestamped event lines (`● 2 done — …`),
-     red needs-you lines showing the exact command, your own commands echoed
-     `❯`-prefixed. Inline `[approve] [deny + guide]` buttons appear under
-     red lines as accelerators — they issue the same grammar commands.
-  2. One input at the bottom speaking **the same grammar as the iMessage
-     bridge**: `status` · `N: <prompt>` · `approve N` / `deny N <guidance>` ·
-     `nudge N`. One language, two transports — learn it once.
-  3. A row of tappable suggestions above the input (`status`, `approve 5`, …)
-     for zero-typing triage.
+  1. **Tap a session → type → send** is the majority flow: the feed opens
+     with a tappable board (one line per session); tapping prefills `N: ` and
+     focuses the input.
+  2. **Pending approvals get LETTERS** (A, B, …) — short-lived queue ids that
+     never collide with session numbers. Reply a bare letter to approve.
+     Deny = `N: <guidance>` to the session (clears its pending letter).
+  3. **THE button**: a single large approve button pinned above the input,
+     always showing the next pending letter + its exact command. Pressing it
+     must feel like a like button — press-scale, green burst, advances to the
+     next letter, collapses to a quiet "nothing needs you" state when the
+     queue is empty. This is the one deliberate un-square element on mobile.
+  4. One input speaking **the same grammar as the iMessage bridge**:
+     `status` · `N: <prompt>` · bare letter approves · `nudge N`. One
+     language, two transports.
 
 ### Rules
 

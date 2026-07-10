@@ -89,7 +89,45 @@
   .tbtn.pri { background: var(--sel); color: var(--bg); border-color: var(--sel); font-weight: 700; }
   .tbtn:active { transform: translateY(1px); }
 
-  .sugg { display: flex; gap: 7px; padding: 8px 10px 0; flex-wrap: wrap; }
+  /* tappable session lines — tap to prompt is the primary gesture */
+  .ln.tap { cursor: pointer; border-radius: 6px; margin: 0 -6px; padding: 2px 6px; }
+  .ln.tap:active { background: var(--surface-2); }
+  .ln.tap .go { color: var(--ink-3); flex: none; padding-top: 1px; }
+  .alet {
+    display: inline-grid; place-items: center;
+    width: 16px; height: 16px; border-radius: 4px;
+    background: var(--err); color: #fff; font-size: 10px; font-weight: 700;
+    vertical-align: -3px; margin-right: 2px;
+  }
+
+  /* THE button — approve the next pending thing. big, thumbable, satisfying */
+  .bigwrap { padding: 10px 12px 0; }
+  .bigapprove {
+    width: 100%; font: inherit; cursor: pointer; text-align: left;
+    background: var(--sel); color: var(--bg);
+    border: 0; border-radius: 16px;
+    padding: 13px 16px;
+    display: flex; flex-direction: column; gap: 2px;
+    box-shadow: 0 1px 0 rgba(0,0,0,.5), 0 0 18px rgba(233,237,242,.10);
+    transition: transform .08s, box-shadow .15s, background .2s, color .2s;
+    position: relative;
+  }
+  .bigapprove:active { transform: scale(.965); }
+  .ba-main { font-size: 15px; font-weight: 800; letter-spacing: .01em; display: flex; align-items: center; gap: 8px; }
+  .ba-main .alet { background: var(--bg); color: var(--sel); width: 20px; height: 20px; font-size: 12px; border-radius: 5px; }
+  .ba-sub { font-size: 10px; opacity: .62; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .bigapprove.burst { animation: burst .5s ease-out; }
+  @keyframes burst {
+    0% { box-shadow: 0 0 0 0 rgba(70,214,140,.65); }
+    100% { box-shadow: 0 0 0 26px rgba(70,214,140,0); }
+  }
+  .bigapprove.empty {
+    background: var(--surface); color: var(--ink-3); cursor: default;
+    border: 1px solid var(--border); box-shadow: none;
+  }
+  .bigapprove.empty .ba-main { font-size: 12px; font-weight: 500; }
+
+  .sugg { display: flex; gap: 7px; padding: 8px 12px 0; flex-wrap: wrap; }
   .sug {
     font: inherit; font-size: 10px; color: var(--ink-3); cursor: pointer;
     background: none; border: 1px solid var(--border); border-radius: var(--r-chip);
@@ -204,18 +242,22 @@
           <div class="hv-body" id="hvbody"></div>
 
           <div class="hv-toast" id="hvtoast"></div>
+          <div class="bigwrap">
+            <button class="bigapprove" id="bigbtn">
+              <span class="ba-main"><span class="alet" id="ba-letter">A</span> approve</span>
+              <span class="ba-sub" id="ba-sub"></span>
+            </button>
+          </div>
           <div class="sugg" id="sugg">
             <button class="sug">status</button>
-            <button class="sug">approve 5</button>
-            <button class="sug">3: tighten the summary, cut 30%</button>
           </div>
           <div class="hv-prompt">
-            <input id="hvinput" placeholder="status · 3: prompt · approve 5" autocomplete="off" spellcheck="false" />
+            <input id="hvinput" placeholder="tap a session · a approves · 3: prompt" autocomplete="off" spellcheck="false" />
             <button class="hv-send" id="hvsend" aria-label="send">⏎</button>
           </div>
         </div>
       </div>
-      <p class="caption"><b>M8a — tailnet slice.</b> a text interface, not a shrunken dashboard: one feed, one input, <b>one grammar shared with iMessage</b> — <b>status</b> · <b>3: prompt</b> · <b>approve 5</b>. inline buttons are just accelerators for the same commands. served on 127.0.0.1, exposed only via tailscale serve, device-identity auth; approvals allowed here, no yolo remotely. try typing <b>status</b>.</p>
+      <p class="caption"><b>M8a — tailnet slice.</b> three moves: <b>tap a session → type → send</b> (the majority flow), <b>the big button approves the next pending letter</b> (press it — it's meant to feel like a like button), and <b>letters approve</b> — approvals get letters A/B so they never collide with session numbers; typing a bare “a” approves A. same grammar as iMessage. device-identity auth via tailscale; no yolo remotely.</p>
     </div>
 
     <!-- ————— iMessage bridge ————— -->
@@ -229,18 +271,17 @@
           <div class="im-body" id="imbody">
             <div class="stamp">Today 2:41 PM</div>
             <div class="bub me">status</div>
-            <div class="bub them"><span class="mono">🟡 2 working · 🟢 4 done · 🔴 2 need you
+            <div class="bub them"><span class="mono">🟡 2 working · 🟢 3 done · 🔴 2 pending
 
-5 · billing webhooks — wants to run:
-Bash(stripe fixtures pull …)
-6 · memory leak — stalled 14m
+A · 5 wants: Bash(stripe fixtures pull …)
+B · 1 wants: Bash(npm run db:migrate)
 
-reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
+reply a letter to approve · “3: &lt;prompt&gt;” to steer</span></div>
             <div class="typing" id="imtyping"><i></i><i></i><i></i></div>
           </div>
           <div class="im-input">
             <div class="chips" id="imchips">
-              <button class="chip" data-k="approve">approve 5</button>
+              <button class="chip" data-k="approve">a</button>
               <button class="chip" data-k="prompt">3: tighten the summary, cut 30%</button>
               <button class="chip" data-k="status">status</button>
             </div>
@@ -273,10 +314,21 @@ reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
   'use strict';
   const $ = s => document.querySelector(s);
 
-  // ————— left phone: text-interface feed —————
-  // one grammar, shared with the iMessage bridge: status · N: prompt · approve N
-  const feed = $('#hvbody'), input = $('#hvinput');
-  let pending5 = true;
+  // ————— left phone: text feed + THE button —————
+  // grammar (shared with iMessage): a/b… approves that letter · N: prompt · status
+  const feed = $('#hvbody'), input = $('#hvinput'), bigbtn = $('#bigbtn');
+  const SESSIONS = [
+    { n: '1', dot: 'busy', t: 'refactor auth middleware' },
+    { n: '2', dot: 'ok', t: 'fix flaky retry test in ci' },
+    { n: '3', dot: 'ok', t: 'q3 roadmap narrative draft' },
+    { n: '4', dot: 'busy', t: 'migrate dashboard to tailwind v4' },
+    { n: '5', dot: 'err', t: 'integration tests for billing webhooks' },
+  ];
+  // pending approvals get short-lived LETTERS — no collision with session numbers
+  let queue = [
+    { l: 'A', n: '5', cmd: 'Bash(stripe fixtures pull --api-version 2026-03 --write test/fixtures/)' },
+    { l: 'B', n: '1', cmd: 'Bash(npm run db:migrate)' },
+  ];
   const now = () => {
     const d = new Date();
     return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -289,30 +341,46 @@ reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
     feed.scrollTop = feed.scrollHeight;
     return el;
   }
-  const BOARD = () =>
-    `<span class="d busy">●</span> ${pending5 ? 2 : 3} working · <span class="d ok">●</span> 4 done · <span class="d err">●</span> ${pending5 ? 2 : 1} need you`;
-
-  // opening feed
-  line('13:58', '<span class="d busy">●</span> 1 working — refactor auth middleware <span class="dim" style="color:var(--ink-3)">(fable-5 · gx)</span>');
-  line('14:02', '<span class="d ok">●</span> 2 done — retry window widened + jitter, 3 green runs');
-  const l5 = line('14:07', `<span class="d err">●</span> <span class="red">5 wants:</span> Bash(stripe fixtures pull --api-version 2026-03 --write test/fixtures/)
-    <span class="acts"><button class="tbtn pri" id="ap5">approve</button><button class="tbtn" id="dn5">deny + guide</button></span>`);
-  line('14:11', '<span class="d err">●</span> <span class="red">6 stalled 14m</span> — memory-leak bisect went quiet <span class="acts"><button class="tbtn" id="ng6">nudge</button></span>');
-
-  function echo(t) { line(now(), t.replace(/</g, '&lt;'), 'me'); }
-  function approve5() {
-    if (!pending5) { line(now(), 'nothing pending approval on 5', 'dim'); return; }
-    pending5 = false;
-    l5.querySelector('.acts')?.remove();
-    line(now(), '<span class="grn">✓ 5 approved — running</span> · desktop logs “approved via remote · joe@…”');
-    setTimeout(() => line(now(), '<span class="d ok">●</span> 5 done — fixtures written, tests green'), 4200);
+  function sessLine(s) {
+    const el = document.createElement('div');
+    el.className = 'ln tap';
+    el.innerHTML = `<span class="ts"></span><span class="tx"><span class="d ${s.dot}">●</span> ${s.n} ${s.t}</span><span class="go">›</span>`;
+    el.addEventListener('click', () => { input.value = `${s.n}: `; input.focus(); });
+    feed.appendChild(el);
   }
-  $('#ap5').addEventListener('click', () => { echo('approve 5'); approve5(); });
-  $('#dn5').addEventListener('click', () => { input.value = '5: '; input.focus(); });
-  $('#ng6').addEventListener('click', () => {
-    echo('nudge 6');
-    line(now(), '↻ nudged — 6 resumed output 3s later', 'dim');
+  function drawBig() {
+    const next = queue[0];
+    if (next) {
+      bigbtn.classList.remove('empty');
+      bigbtn.innerHTML = `<span class="ba-main"><span class="alet">${next.l}</span> approve</span>
+        <span class="ba-sub">${next.n} · ${next.cmd.replace(/</g, '&lt;')}</span>`;
+    } else {
+      bigbtn.classList.add('empty');
+      bigbtn.innerHTML = `<span class="ba-main"><span class="d ok">●</span> nothing needs you — 2 working, 3 done</span>`;
+    }
+  }
+  function echo(t) { line(now(), t.replace(/</g, '&lt;'), 'me'); }
+  function approve(letter) {
+    const i = queue.findIndex(q => q.l === letter);
+    if (i < 0) { line(now(), `nothing pending on “${letter}”`, 'dim'); return; }
+    const q = queue.splice(i, 1)[0];
+    bigbtn.classList.remove('burst'); void bigbtn.offsetWidth; // restart animation
+    bigbtn.classList.add('burst');
+    line(now(), `<span class="grn">✓ ${q.l} approved — ${q.n} running</span> · desktop logs “via remote · joe@…”`);
+    setTimeout(() => line(now(), `<span class="d ok">●</span> ${q.n} done — response ready`), 4400);
+    drawBig();
+  }
+  bigbtn.addEventListener('click', () => {
+    if (!queue.length) return;
+    echo(queue[0].l.toLowerCase());
+    approve(queue[0].l);
   });
+
+  // opening feed: the board (tap any session to prompt it), then the queue
+  SESSIONS.forEach(sessLine);
+  queue.forEach(q =>
+    line(now(), `<span class="alet">${q.l}</span> <span class="red">${q.n} wants:</span> ${q.cmd}`));
+  drawBig();
 
   function submit() {
     const v = input.value.trim();
@@ -321,17 +389,17 @@ reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
     echo(v);
     let m;
     if (/^status$/i.test(v)) {
-      line(now(), BOARD());
-      if (pending5) line(now(), '<span class="red">5 wants:</span> Bash(stripe fixtures pull …) — reply “approve 5”');
-    } else if ((m = v.match(/^approve\s+(\d+)/i))) {
-      m[1] === '5' ? approve5() : line(now(), `nothing pending approval on ${m[1]}`, 'dim');
+      line(now(), `<span class="d busy">●</span> 2 working · <span class="d ok">●</span> 3 done · <span class="d err">●</span> ${queue.length} pending`);
+      queue.forEach(q => line(now(), `<span class="alet">${q.l}</span> ${q.n} wants: ${q.cmd}`));
+    } else if ((m = v.match(/^([a-z])$/i))) {
+      approve(m[1].toUpperCase());
     } else if ((m = v.match(/^(\d+):\s*(.+)/))) {
-      const deny = m[1] === '5' && pending5;
-      if (deny) { pending5 = false; l5.querySelector('.acts')?.remove(); }
-      line(now(), `${deny ? 'denied the request — guidance ' : ''}→ sent to ${m[1]} — working`, 'dim');
+      const q = queue.find(x => x.n === m[1]);
+      if (q) { queue = queue.filter(x => x !== q); drawBig(); }
+      line(now(), `${q ? 'denied ' + q.l + ' — guidance ' : ''}→ sent to ${m[1]} — working`, 'dim');
       setTimeout(() => line(now(), `<span class="d ok">●</span> ${m[1]} done — response ready`), 4600);
     } else {
-      line(now(), 'prefix a session — “3: &lt;prompt&gt;” · or “status”, “approve 5”', 'dim');
+      line(now(), 'tap a session, or: “3: &lt;prompt&gt;” · “a” approves A · “status”', 'dim');
     }
   }
   $('#hvsend').addEventListener('click', submit);
@@ -342,8 +410,8 @@ reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
   // ————— right phone: scripted iMessage —————
   const SCRIPT = {
     approve: [
-      { who: 'me', t: 'approve 5' },
-      { who: 'them', t: 'approvals are disabled over iMessage (soft identity).\n\nuse the tailnet page — or enable “approvals via iMessage” in Settings on your mac.' },
+      { who: 'me', t: 'a' },
+      { who: 'them', t: 'approvals are off over iMessage (soft identity).\n\ntap A on the tailnet page — or enable “approvals via iMessage” in Settings on your mac.' },
     ],
     prompt: [
       { who: 'me', t: '3: tighten the summary, cut 30%' },
@@ -352,7 +420,7 @@ reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
     ],
     status: [
       { who: 'me', t: 'status' },
-      { who: 'them', t: '🟡 3 working · 🟢 4 done · 🔴 1 needs you\n\n5 · billing webhooks — wants to run:\nBash(stripe fixtures pull …)' },
+      { who: 'them', t: '🟡 3 working · 🟢 3 done · 🔴 1 pending\n\nA · 5 wants: Bash(stripe fixtures pull …)' },
     ],
   };
   const body = $('#imbody'), typing = $('#imtyping');
