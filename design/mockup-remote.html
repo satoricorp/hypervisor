@@ -113,9 +113,17 @@
     position: relative;
   }
   .bigapprove:active { transform: scale(.965); }
-  .ba-main { font-size: 15px; font-weight: 800; letter-spacing: .01em; display: flex; align-items: center; gap: 8px; }
-  .ba-main .alet { background: var(--bg); color: var(--sel); width: 20px; height: 20px; font-size: 12px; border-radius: 5px; }
-  .ba-sub { font-size: 10px; opacity: .62; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .ba-main { font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .ba-xer {
+    font-family: "Xer0", var(--mono);
+    font-size: 21px; font-weight: 700; letter-spacing: .08em; line-height: 1;
+  }
+  .ba-sub {
+    font-size: 10px; opacity: .68;
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; overflow: hidden; max-width: 100%;
+  }
+  .ba-sub .cmdtxt { overflow: hidden; text-overflow: ellipsis; }
   .bigapprove.burst { animation: burst .5s ease-out; }
   @keyframes burst {
     0% { box-shadow: 0 0 0 0 rgba(70,214,140,.65); }
@@ -352,27 +360,27 @@ reply a letter to approve · “3: &lt;prompt&gt;” to steer</span></div>
     const next = queue[0];
     if (next) {
       bigbtn.classList.remove('empty');
-      bigbtn.innerHTML = `<span class="ba-main"><span class="alet">${next.l}</span> approve</span>
-        <span class="ba-sub">${next.n} · ${next.cmd.replace(/</g, '&lt;')}</span>`;
+      bigbtn.innerHTML = `<span class="ba-xer">APPROVE</span>
+        <span class="ba-sub"><span class="alet">${next.l}</span><span class="cmdtxt">${next.n} · ${next.cmd.replace(/</g, '&lt;')}</span></span>`;
     } else {
       bigbtn.classList.add('empty');
       bigbtn.innerHTML = `<span class="ba-main"><span class="d ok">●</span> nothing needs you — 2 working, 3 done</span>`;
     }
   }
   function echo(t) { line(now(), t.replace(/</g, '&lt;'), 'me'); }
+  // the button's burst IS the feedback — no echo lines in the feed on approve;
+  // the session's own "done" event arrives later and confirms naturally
   function approve(letter) {
     const i = queue.findIndex(q => q.l === letter);
     if (i < 0) { line(now(), `nothing pending on “${letter}”`, 'dim'); return; }
     const q = queue.splice(i, 1)[0];
     bigbtn.classList.remove('burst'); void bigbtn.offsetWidth; // restart animation
     bigbtn.classList.add('burst');
-    line(now(), `<span class="grn">✓ ${q.l} approved — ${q.n} running</span> · desktop logs “via remote · joe@…”`);
     setTimeout(() => line(now(), `<span class="d ok">●</span> ${q.n} done — response ready`), 4400);
     drawBig();
   }
   bigbtn.addEventListener('click', () => {
     if (!queue.length) return;
-    echo(queue[0].l.toLowerCase());
     approve(queue[0].l);
   });
 
