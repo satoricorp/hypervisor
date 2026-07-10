@@ -20,8 +20,8 @@ session going red; Tab approves and resumes playback).
   `tv` label; mint when open). Also reachable via ⌘K → `tv`.
 - **Toggle = hide, never destroy.** Clicking tv (or the hover ✕) pauses the
   video and hides the window; the video, its timestamp, and the window's
-  position/size all survive. Clicking again shows it exactly where it was,
-  still paused — resuming is one click, so audio never blasts unrequested.
+  position/size all survive. Clicking again shows it exactly where it was
+  **and resumes playback** — turning the TV back on continues the show.
   The window is destroyed only on app quit.
 - **The main window's CSP does not change.** All remote content lives in the
   satellite window. This is the whole reason it's a separate window.

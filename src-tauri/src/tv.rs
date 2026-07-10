@@ -66,9 +66,8 @@ fn make_drag_anywhere(_w: &tauri::WebviewWindow) {}
 
 /// Toggle the PiP player. The window is created once and then hidden/shown —
 /// never destroyed — so the video, its timestamp, and window position all
-/// survive the toggle. Hiding pauses playback; showing leaves it paused so
-/// audio never blasts unexpectedly (one click/space resumes). Returns the
-/// new visible state.
+/// survive the toggle. Hiding pauses playback; showing resumes it (turning
+/// the TV back on continues the show). Returns the new visible state.
 #[tauri::command]
 pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
     if let Some(w) = app.get_webview_window(LABEL) {
@@ -80,6 +79,7 @@ pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
         }
         w.show().map_err(|e| e.to_string())?;
         let _ = w.set_focus();
+        let _ = w.eval("try { document.querySelector('video')?.play() } catch (_e) {}");
         return Ok(true);
     }
     let w = WebviewWindowBuilder::new(
