@@ -208,3 +208,55 @@ Backend `yolo` flag + poller auto-`approve`; frontend statusbar amber
 
 next task file needed (planner writes it)
 
+---
+
+**Planner/verifier note** (independent verification, 2026-07-10):
+
+Verified against the work order:
+- Ritual: commit `2e401f4`; M3 ticked in committed PLAN.md; Evidence above
+  is detailed and honest about what was and wasn't proven live.
+- Code review: detection lives in `approvals.rs` (control layer — adapters
+  untouched, per the fence). opencode: `GET /permission` poll every 2s with
+  the live-discovered `?directory=` scoping, reply via the corrected
+  `{"reply", "message"?}` schema; deny-with-guidance rides the native
+  `message` field. The poller is gated on `healthy()` — it never spawns
+  `opencode serve` by itself; serve stays lazy on prompt. Claude pane
+  parser is fixture-tested (bash + edit dialogs + no-false-positive);
+  approve/deny send-keys (`1`/`3` + guidance) match the recorded empirical
+  keys. Codex left out with a documented DECISION — allowed by DoD #5.
+  Yolo is backend state with a seen-set (no re-toast/hammer), amber UI,
+  toast per auto-approval. Wire gains `approval` and the `needs_you`
+  override; Tab → `approve_session`, typing at a pending approval →
+  `deny_session`; commands registered.
+- Checks: `python3 spike/compare.py` → OK (25/25, 0 diffs); `bunx tsc
+  --noEmit` OK; `cargo test --lib` → 14/14 (5 new approvals tests);
+  `cargo build` OK with `default-run` intact; `npm run tauri dev` boot
+  confirmed by observing the concurrent TV session's live run (app binary
+  up, runtime logs flowing).
+- Sweep: no leftover hv-* tmux sessions; no writes into any harness config
+  dir (the permission trigger config went to `/tmp/hv-m3-opencode-test`);
+  serve on 127.0.0.1:14096 unchanged.
+
+**Open acceptance criterion — claude live Tab-approve (DoD #1/#2).**
+Probed `claude -p` during verification: still
+`OAuth session expired and could not be refreshed`. The claude-live
+approve and deny-with-guidance flows remain unproven end-to-end; pattern
+fidelity rests on binary strings + GH #11380 + the fixture. M3 is ticked
+in PLAN.md with this AC open — after `claude /login` is refreshed, run
+DoD #1 and #2 once and record the pane capture here before M4 builds on
+approvals.
+
+Smaller notes for the planner, no action taken:
+- `detect_tmux` only polls sessions in working/stalled/needs_you; a
+  permission dialog already up when the app starts (session gone idle →
+  `done`) is never detected. Narrow miss window; consider including
+  recently-`done` owned sessions in a later milestone.
+- `parse_claude_pane` accepts any `Tool(arg)` line in the last 25 pane
+  lines once a proceed marker is present — bottom-most wins. Fine
+  empirically; re-derive from a live pane once OAuth is back.
+- The 2s poller re-opens opencode.db read-only each tick via the cwd
+  seeding scan — cheap, but it's the hottest loop in the app now.
+- Seen once in the running app's log: `[scan_cursor] database disk image
+  is malformed` — the M1 cursor adapter degrading to zero sessions as
+  designed (transient; compare.py passes). Watch for recurrence.
+
