@@ -270,7 +270,7 @@ pub fn send_prompt(
 ) -> Result<(), String> {
     let map = state.owned.lock().unwrap();
     let target = map.get(&sid).cloned().ok_or_else(|| {
-        "session is observe-only — adoption lands in M2b".to_string()
+        "session is observe-only — press ⏎ to adopt it first".to_string()
     })?;
     drop(map);
     tmux::send(&target, &text)

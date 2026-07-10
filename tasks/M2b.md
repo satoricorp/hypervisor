@@ -145,3 +145,40 @@ terminal, a fork can still happen. Detecting the original pty is out of
 scope; a later milestone may add a "last writer" indicator.
 
 M2c task file needed.
+
+---
+
+**Planner/verifier note** (independent verification, 2026-07-10):
+
+Verified against the work order:
+- Ritual: commit `e9ddeba` present; M2b ticked in committed PLAN.md; Evidence
+  filled above.
+- `adopt.rs` review: guard order is harness → owned.json → fork guard, each
+  with the specified human-readable error; fork-guard message includes the
+  idle seconds; `mtime` confirmed to be epoch **seconds** (adapters use
+  `as_secs_f64`), so the idle arithmetic is sound. Codex full-uuid recovery
+  takes the final 36 chars of the rollout stem (unit-tested). All tmux calls
+  go through `control::tmux`, whose single `tmux()` entry point always
+  prepends `-L hypervisor`. Only file write is owned.json in the app data
+  dir. `emit_snapshot` (→ `sessions:update`) fires on success. Frontend
+  toasts Ok/Err verbatim as specified.
+- Checks: `python3 spike/compare.py` → OK (18/18, 0 diffs);
+  `cargo test --lib` → 3 passed (incl. `fork_guard_and_adopt_idle_sessions`,
+  which cleaned up its tmux sessions); `cargo build --bin hypervisor` → ok;
+  `default-run = "hypervisor"` intact; `npm run tauri dev` reaches
+  ``Running `target/debug/hypervisor` `` (then killed).
+- Safety sweep: `tmux -L hypervisor ls` → no server; the evidence sessions
+  hv-2c056e72 / hv-52d0a237 were already cleaned up, nothing to kill.
+  `git show --stat e9ddeba` touches nothing under `src-tauri/src/adapters/`.
+  Killed one stale orphaned `vite`/`npm run dev` pair (pids 5504/5468, from
+  the builder's session) that held port 1420 and blocked the tauri-dev check.
+- Fixed (verifier, one line): `events.rs` `send_prompt` error still said
+  "adoption lands in M2b"; now "session is observe-only — press ⏎ to adopt
+  it first".
+- Noted, not fixed: (1) `tmux.rs` spawn for cursor/opencode still errors
+  "not wired until M2b" — stale (opencode is M2c; cursor is watch-only by
+  design); fixing touches a test assertion too, left for M2c. (2) The
+  post-adopt `emit_snapshot` uses the adopt scan limit (64) rather than the
+  sidebar's 8, so the sidebar can briefly show >8 rows until the next
+  watcher tick; possibly deliberate (guarantees the adopted row is in the
+  emitted snapshot) — flagging for the planner, not changing behavior.
