@@ -51,16 +51,49 @@
   .menubar .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
   .mb-glyph { opacity: .75; font-size: 11px; }
   .hvitem {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 7px;
     font-family: var(--mono); font-size: 11px;
     padding: 3px 8px; border-radius: 5px; cursor: pointer; user-select: none;
   }
   .hvitem:hover, .hvitem.open { background: rgba(255,255,255,.12); }
+  /* the menu bar icon: the Xer0 H, aggregate dot pinned to its corner */
+  .hv-h {
+    font-family: "Xer0", var(--mono); font-size: 14px; font-weight: 700;
+    color: #e9edf2; position: relative; line-height: 1; padding-right: 3px;
+  }
+  .hv-h .dot { position: absolute; right: -4px; bottom: -3px; width: 7px; height: 7px; box-shadow: 0 0 0 2px rgba(16,18,22,.9); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
   .d-ok { background: var(--ok); } .d-busy { background: var(--busy); animation: pulse 1.5s infinite; }
   .d-err { background: var(--err); animation: pulse 2.2s infinite; }
   @keyframes pulse { 50% { opacity: .3; } }
   .hvitem .cnt { color: #ff6b64; font-weight: 700; }
+
+  /* dock — the app icon: black Xer0 H on white */
+  .dock {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; align-items: flex-end;
+    background: rgba(30,32,38,.55); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.1); border-radius: 18px;
+    padding: 8px 12px;
+  }
+  .dockicon {
+    width: 46px; height: 46px; border-radius: 12px;
+    display: grid; place-items: center; position: relative;
+  }
+  .dockicon.g1 { background: linear-gradient(140deg, #2c3e50, #1a252f); }
+  .dockicon.g2 { background: linear-gradient(140deg, #4a3b63, #2b2140); }
+  .dockicon.g3 { background: linear-gradient(140deg, #274e43, #16302a); }
+  .dockicon.hv {
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    font-family: "Xer0", var(--mono); font-size: 25px; font-weight: 700; color: #0a0c0e;
+  }
+  .dockbadge {
+    position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px;
+    border-radius: 9px; background: #ff453a; color: #fff;
+    font-family: var(--ios); font-size: 11px; font-weight: 700;
+    display: grid; place-items: center; padding: 0 5px;
+  }
 
   /* dropdown */
   .dropdown {
@@ -128,9 +161,9 @@
   .n-top { display: flex; align-items: center; gap: 8px; }
   .n-icon {
     width: 30px; height: 30px; border-radius: 7px; flex: none;
-    background: #0a0c0e; border: 1px solid #2e3540;
+    background: #fff;
     display: grid; place-items: center;
-    font-family: "Xer0", var(--mono); font-size: 13px; color: #e9edf2; font-weight: 700;
+    font-family: "Xer0", var(--mono); font-size: 14px; color: #0a0c0e; font-weight: 700;
   }
   .n-body { flex: 1; min-width: 0; }
   .n-title { font-size: 12.5px; font-weight: 600; }
@@ -217,7 +250,7 @@
       <span class="apple"></span>
       <div class="right">
         <div class="hvitem" id="hvitem">
-          <i class="dot d-err" id="mbdot"></i>
+          <span class="hv-h">H<i class="dot d-err" id="mbdot"></i></span>
           <span class="cnt" id="mbcnt">1</span>
         </div>
         <span class="mb-glyph">􀙇</span>
@@ -257,6 +290,13 @@
         <input id="nreplyinput" placeholder="guidance — denies and steers" />
         <button id="nreplysend">Send</button>
       </div>
+    </div>
+
+    <div class="dock" aria-hidden="true">
+      <div class="dockicon g1"></div>
+      <div class="dockicon g2"></div>
+      <div class="dockicon hv">H<span class="dockbadge" id="dockbadge">1</span></div>
+      <div class="dockicon g3"></div>
     </div>
 
     <div class="hudwrap" id="hudwrap">
@@ -318,10 +358,12 @@
   }
 
   function render() {
-    // menu bar
+    // menu bar + dock badge
     $('#mbdot').className = 'dot ' + agg();
     $('#mbcnt').textContent = queue.length || '';
     $('#mbcnt').style.display = queue.length ? '' : 'none';
+    $('#dockbadge').textContent = queue.length;
+    $('#dockbadge').style.display = queue.length ? '' : 'none';
     // dropdown approvals
     $('#ddapprs').innerHTML = queue.map(q => `
       <div class="dd-appr">

@@ -15,10 +15,22 @@ approve in one, watch the others update.
 short-lived queue ids for pending approvals; they are stable while visible
 and never collide with session numbers. Learn it once, use it from anywhere.
 
+## Icons
+
+- **App icon**: the Xer0 "H" mark, black on a white squircle. Dock badge =
+  red pending count.
+- **Menu bar icon**: the same Xer0 "H" as a template-style glyph, with the
+  aggregate status dot pinned to its bottom-right corner and a red count
+  beside it when something is pending.
+- **Notification icon**: inherits the app icon (black H on white).
+- Production note: the Xer0 glyph gets exported as vector/PNG assets
+  (icon.icns, tray template image) — the font itself doesn't ship in icons.
+
 ## 1 · Menu bar item
 
-- One dot + optional count: **red** (+n) = things need you, **yellow** =
-  fleet working, **green** = all clear. The whole app status in 10 pixels.
+- The H mark with a corner dot + optional count: **red** (+n) = things need
+  you, **yellow** = fleet working, **green** = all clear. The whole app
+  status in 14 pixels.
 - Click → dropdown (the phone triage page docked in the corner):
   - header: dots summary + yolo state
   - pending approvals: letter badge · command · Approve button
