@@ -17,8 +17,12 @@ session going red; Tab approves and resumes playback).
   min 300px. Controls (pin, close, progress, title) appear on hover with a
   dark scrim, native-PiP style — no persistent chrome.
 - Launched from a **tv button in the main window's titlebar** (icon +
-  `tv` label; mint when open). Also reachable via ⌘K → `tv`. Clicking again
-  or the hover ✕ closes it.
+  `tv` label; mint when open). Also reachable via ⌘K → `tv`.
+- **Toggle = hide, never destroy.** Clicking tv (or the hover ✕) pauses the
+  video and hides the window; the video, its timestamp, and the window's
+  position/size all survive. Clicking again shows it exactly where it was,
+  still paused — resuming is one click, so audio never blasts unrequested.
+  The window is destroyed only on app quit.
 - **The main window's CSP does not change.** All remote content lives in the
   satellite window. This is the whole reason it's a separate window.
 - Pause/resume: the backend evals JS in the tv webview (Tauri window eval —

@@ -64,12 +64,23 @@ fn make_drag_anywhere(w: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn make_drag_anywhere(_w: &tauri::WebviewWindow) {}
 
-/// Open the PiP player if closed, close it if open. Returns the new state.
+/// Toggle the PiP player. The window is created once and then hidden/shown —
+/// never destroyed — so the video, its timestamp, and window position all
+/// survive the toggle. Hiding pauses playback; showing leaves it paused so
+/// audio never blasts unexpectedly (one click/space resumes). Returns the
+/// new visible state.
 #[tauri::command]
 pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
     if let Some(w) = app.get_webview_window(LABEL) {
-        w.close().map_err(|e| e.to_string())?;
-        return Ok(false);
+        let visible = w.is_visible().map_err(|e| e.to_string())?;
+        if visible {
+            let _ = w.eval("try { document.querySelector('video')?.pause() } catch (_e) {}");
+            w.hide().map_err(|e| e.to_string())?;
+            return Ok(false);
+        }
+        w.show().map_err(|e| e.to_string())?;
+        let _ = w.set_focus();
+        return Ok(true);
     }
     let w = WebviewWindowBuilder::new(
         &app,
@@ -98,6 +109,9 @@ pub fn tv_interrupt(app: AppHandle, title: String, detail: String) -> Result<(),
     let Some(w) = app.get_webview_window(LABEL) else {
         return Ok(()); // no tv, no interrupt — never an error
     };
+    if !w.is_visible().unwrap_or(false) {
+        return Ok(()); // hidden tv is already paused — nothing to interrupt
+    }
     let text = serde_json::to_string(&format!("⏸ {title} — {detail}"))
         .map_err(|e| e.to_string())?;
     let js = format!(
