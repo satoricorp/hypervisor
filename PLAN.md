@@ -229,7 +229,7 @@ in M3x.*
   torn-reads degrade to last-good instead of zero rows. Task file:
   `tasks/H2.md`.
 
-- [ ] **H3 — failure surfacing + webview safety.** Real CSP (currently null),
+- [x] **H3 — failure surfacing + webview safety.** Real CSP (currently null),
   structured toasts (no HTML over the wire), spawn dead-pane detection,
   adapter health line in the statusbar, sidebar overflow count, subagent
   rows populated or honestly hidden. Task file: `tasks/H3.md`.

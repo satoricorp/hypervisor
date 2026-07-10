@@ -77,6 +77,9 @@ pub fn new_detached(name: &str, cwd: &str, shell_cmd: &str) -> Result<(), String
         "-lic",
         shell_cmd,
     ])?;
+    // Keep the pane around after the shell exits so spawn-health can capture
+    // "command not found" (H3). Caller kills after the check.
+    let _ = tmux(&["set-option", "-t", name, "remain-on-exit", "on"]);
     Ok(())
 }
 
@@ -152,6 +155,17 @@ pub fn kill(target: &str) -> Result<(), String> {
 /// True if `target` exists on the hypervisor socket.
 pub fn has_session(target: &str) -> bool {
     tmux(&["has-session", "-t", target]).is_ok()
+}
+
+/// True if the session is gone or its pane reports dead.
+pub fn pane_dead(target: &str) -> bool {
+    if !has_session(target) {
+        return true;
+    }
+    match tmux(&["display-message", "-p", "-t", target, "#{pane_dead}"]) {
+        Ok(s) => s.trim() == "1",
+        Err(_) => true,
+    }
 }
 
 #[cfg(test)]

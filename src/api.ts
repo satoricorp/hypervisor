@@ -1,8 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionWire } from "./wire";
 
-export async function listSessions(): Promise<SessionWire[]> {
-  return invoke<SessionWire[]>("list_sessions");
+export interface SessionsUpdate {
+  sessions: SessionWire[];
+  total: number;
+}
+
+export async function listSessions(): Promise<SessionsUpdate> {
+  return invoke<SessionsUpdate>("list_sessions");
 }
 
 export async function spawnSession(
@@ -51,8 +56,8 @@ export async function waitForOwnedSid(
 ): Promise<string | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const list = await listSessions();
-    const found = list.find(
+    const update = await listSessions();
+    const found = update.sessions.find(
       (s) => s.control === "tmux" && s.sid && !before.has(s.sid),
     );
     if (found) return found.sid;

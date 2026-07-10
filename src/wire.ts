@@ -36,6 +36,12 @@ function mapControl(control: string): ControlTier {
   return "observe";
 }
 
+// DECISION (H3): claude code transcripts on this machine never set
+// `isSidechain: true` (only the false flag on main-chain rows). hvwatch.py
+// counts parentless sidechain user entries for the ↳ badge, but there is no
+// stable target/task/state payload to populate Subagent rows. Leave subs
+// empty and hide the h/l hint when a session has none — don't advertise a
+// dead keyboard affordance.
 export function wireToSession(w: SessionWire): Session {
   const title = w.title || w.sid || "(untitled)";
   const sent = w.last_user || "—";

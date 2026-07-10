@@ -7,7 +7,7 @@ mod tv;
 
 pub use adapters::{Adapter, Session};
 pub use registry::{
-    scan_sessions, watch_sessions, watch_sessions_cli, Harness, SnapshotReason,
+    scan_sessions, watch_sessions, watch_sessions_cli, Harness, HealthSnapshot, SnapshotReason,
 };
 
 use control::adopt::adopt_session;
@@ -33,6 +33,7 @@ pub fn run() {
             let owned_map = control::owned::load(&owned_path);
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
+                total: std::sync::Mutex::new(0),
                 sessions: std::sync::Mutex::new(Vec::new()),
                 owned: std::sync::Mutex::new(owned_map),
                 owned_path: std::sync::Mutex::new(owned_path),

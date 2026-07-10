@@ -31,7 +31,8 @@ pub struct PendingApproval {
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ToastEvent {
-    pub html: String,
+    pub label: String,
+    pub detail: Option<String>,
 }
 
 const TOOL_NAMES: &[&str] = &[

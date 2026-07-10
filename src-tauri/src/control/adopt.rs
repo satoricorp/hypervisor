@@ -1,12 +1,14 @@
 //! Adopt observe-only sessions into hypervisor tmux via harness resume.
 
+use crate::approvals::ToastEvent;
 use crate::control::{owned, tmux};
 use crate::events::{emit_snapshot, AppState};
 use crate::registry::scan_sessions;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, State};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter, State};
 
 const MAX_AGE_HOURS: f64 = 48.0;
 /// DECISION: adopt lookup uses a higher limit than the sidebar (8) so a
@@ -101,6 +103,55 @@ pub fn adopt_session(
     // Fresh snapshot so the control chip flips without waiting for an fs event.
     let sessions = scan_sessions(MAX_AGE_HOURS, ADOPT_SCAN_LIMIT, None);
     emit_snapshot(&app, &state, sessions);
+
+    // ~2s health check — same as /new spawn (H3).
+    let app2 = app.clone();
+    let st = Arc::clone(state.inner());
+    let hv2 = hv_name.clone();
+    let sid2 = sid.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(2));
+        if !tmux::pane_dead(&hv2) {
+            return;
+        }
+        let detail = match tmux::capture_pane(&hv2, -40) {
+            Ok(pane) => {
+                let lines: Vec<&str> = pane
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                let take = lines.len().saturating_sub(6);
+                let tail = lines[take..].join(" · ");
+                if tail.is_empty() {
+                    "pane exited with no output".into()
+                } else {
+                    tail
+                }
+            }
+            Err(_) => "pane exited (no capture)".to_string(),
+        };
+        {
+            let mut map = st.owned.lock().unwrap_or_else(|p| p.into_inner());
+            map.remove(&sid2);
+            let path = st.owned_path.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let _ = owned::save(&path, &map);
+        }
+        st.pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&sid2);
+        let sessions = scan_sessions(MAX_AGE_HOURS, ADOPT_SCAN_LIMIT, None);
+        emit_snapshot(&app2, &st, sessions);
+        let _ = app2.emit(
+            "toast",
+            &ToastEvent {
+                label: format!("adopt failed · {hv2}"),
+                detail: Some(detail),
+            },
+        );
+        let _ = tmux::kill(&hv2);
+    });
 
     Ok(hv_name)
 }

@@ -43,6 +43,14 @@ pub enum SnapshotReason {
     Tick,
 }
 
+/// Per-tick health for the statusbar (H3). Degraded = last fs scan failed
+/// and we're keeping last-good rows.
+#[derive(Clone, Debug, Default)]
+pub struct HealthSnapshot {
+    /// Harness names currently in degraded (stale) mode.
+    pub degraded: Vec<String>,
+}
+
 /// Scan all harnesses (or a subset) and return sessions sorted by mtime desc.
 pub fn scan_sessions(
     max_age_hours: f64,
@@ -150,7 +158,7 @@ const TICK: Duration = Duration::from_secs(2);
 /// debounced fs change, and every 2s tick (re-finalize only — no adapter I/O).
 pub fn watch_sessions<F>(max_age_hours: f64, limit: usize, mut on_snapshot: F) -> Result<(), String>
 where
-    F: FnMut(Vec<Session>, SnapshotReason),
+    F: FnMut(Vec<Session>, SnapshotReason, HealthSnapshot),
 {
     let (tx, rx) = mpsc::channel::<Result<Event, notify::Error>>();
     let mut watcher = RecommendedWatcher::new(
@@ -187,7 +195,11 @@ where
             }
         }
     }
-    on_snapshot(merge_cache(&by_harness), SnapshotReason::Startup);
+    on_snapshot(
+        merge_cache(&by_harness),
+        SnapshotReason::Startup,
+        health_of(&logged_degraded),
+    );
 
     let debounce = Duration::from_millis(500);
     let mut pending: HashMap<Harness, Instant> = HashMap::new();
@@ -270,7 +282,11 @@ where
         }
 
         if fs_changed {
-            on_snapshot(merge_cache(&by_harness), SnapshotReason::Fs);
+            on_snapshot(
+                merge_cache(&by_harness),
+                SnapshotReason::Fs,
+                health_of(&logged_degraded),
+            );
         }
 
         if last_tick.elapsed() >= TICK {
@@ -279,7 +295,11 @@ where
             for part in by_harness.values_mut() {
                 refinalize(part);
             }
-            on_snapshot(merge_cache(&by_harness), SnapshotReason::Tick);
+            on_snapshot(
+                merge_cache(&by_harness),
+                SnapshotReason::Tick,
+                health_of(&logged_degraded),
+            );
         }
     }
 
@@ -287,11 +307,17 @@ where
     Ok(())
 }
 
+fn health_of(degraded: &HashSet<Harness>) -> HealthSnapshot {
+    HealthSnapshot {
+        degraded: degraded.iter().map(|h| h.as_str().to_string()).collect(),
+    }
+}
+
 /// CLI helper: print `<harness> <sid> <old> -> <new>` on state transitions.
 pub fn watch_sessions_cli(max_age_hours: f64, limit: usize) -> Result<(), String> {
     let mut prev: HashMap<(String, String), String> = HashMap::new();
     eprintln!("watching… (ctrl-c to quit)");
-    watch_sessions(max_age_hours, limit, |sessions, _reason| {
+    watch_sessions(max_age_hours, limit, |sessions, _reason, _health| {
         let mut seen: HashSet<(String, String)> = HashSet::new();
         for s in &sessions {
             let k = session_key(s);

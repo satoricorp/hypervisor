@@ -11,6 +11,8 @@ export function Sidebar() {
     selRef.current?.scrollIntoView({ block: "nearest" });
   }, [state.sel]);
 
+  const overflow = Math.max(0, state.total - state.sessions.length);
+
   return (
     <aside id="side" aria-label="sessions">
       <NewAgentButton />
@@ -44,6 +46,11 @@ export function Sidebar() {
           </div>
         );
       })}
+      {overflow > 0 ? (
+        <div className="sidefoot" id="sidefoot">
+          +{overflow} more · not monitored
+        </div>
+      ) : null}
     </aside>
   );
 }

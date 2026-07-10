@@ -33,7 +33,7 @@ fn percent_encode(s: &str) -> String {
     out
 }
 
-fn healthy() -> bool {
+pub fn healthy() -> bool {
     ureq::get(&format!("{BASE}/session"))
         .timeout(Duration::from_secs(2))
         .call()

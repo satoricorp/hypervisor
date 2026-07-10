@@ -3,8 +3,8 @@
 use crate::adapters::Session;
 use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::owned::OwnedMap;
-use crate::control::{owned, tmux};
-use crate::registry::{scan_sessions, watch_sessions, SnapshotReason};
+use crate::control::{opencode, owned, tmux};
+use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,8 +13,11 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
 
-const MAX_AGE_HOURS: f64 = 48.0;
+/// Sidebar display cap — overflow footer reports anything beyond this.
 const LIMIT: usize = 8;
+/// Scan wider than LIMIT so `total` can be honest about overflow.
+const SCAN_LIMIT: usize = 64;
+const MAX_AGE_HOURS: f64 = 48.0;
 
 /// Poisoning-tolerant lock — a panic in one critical section must not brick
 /// the app. DECISION: small helper over parking_lot to avoid a new direct dep.
@@ -44,6 +47,28 @@ pub struct SessionWire {
     pub approval: Option<String>,
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct SessionsUpdate {
+    pub sessions: Vec<SessionWire>,
+    pub total: usize,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct HealthEvent {
+    pub watcher: bool,
+    pub adapters: Vec<AdapterHealth>,
+    pub serve: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct AdapterHealth {
+    pub harness: String,
+    pub status: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct PendingOwned {
     pub harness: String,
@@ -55,6 +80,7 @@ pub struct PendingOwned {
 
 pub struct AppState {
     pub snapshot: Mutex<Vec<SessionWire>>,
+    pub total: Mutex<usize>,
     /// Last adapter sessions from the watcher (or a oneshot command scan).
     /// Tick re-finalizes these; emit paths must not full-rescan when this is set.
     pub sessions: Mutex<Vec<Session>>,
@@ -184,11 +210,11 @@ fn merge_pending(
 }
 
 /// Build wire from cached sessions (or a provided list). Never full-rescans
-/// when the watcher cache is warm.
+/// when the watcher cache is warm. Returns (wire, total_before_display_cap).
 fn apply_approvals_to_snapshot(
     state: &AppState,
     sessions: Option<Vec<Session>>,
-) -> Vec<SessionWire> {
+) -> (Vec<SessionWire>, usize) {
     let owned = lock(&state.owned).clone();
     let pending = lock(&state.pending).clone();
     let approvals = lock(&state.approvals).clone();
@@ -200,7 +226,7 @@ fn apply_approvals_to_snapshot(
                 cached
             } else {
                 // Cold start before watcher has emitted — oneshot only.
-                scan_sessions(MAX_AGE_HOURS, LIMIT, None)
+                scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None)
             }
         }
     };
@@ -209,30 +235,73 @@ fn apply_approvals_to_snapshot(
         let mut p = lock(&state.pending);
         p.retain(|sid, _| !sessions.iter().any(|s| &s.sid == sid));
     }
-    merge_pending(to_wire(&sessions, &owned, &approvals), &owned, &pending, &approvals)
+    let total = sessions.len();
+    let capped: Vec<Session> = sessions.into_iter().take(LIMIT).collect();
+    let wire = merge_pending(
+        to_wire(&capped, &owned, &approvals),
+        &owned,
+        &pending,
+        &approvals,
+    );
+    (wire, total)
+}
+
+fn emit_update(app: &AppHandle, state: &AppState, wire: Vec<SessionWire>, total: usize) {
+    *lock(&state.snapshot) = wire.clone();
+    *lock(&state.total) = total;
+    let _ = app.emit(
+        "sessions:update",
+        &SessionsUpdate {
+            sessions: wire,
+            total,
+        },
+    );
 }
 
 pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
     *lock(&state.sessions) = sessions.clone();
-    let wire = apply_approvals_to_snapshot(state, Some(sessions));
-    *lock(&state.snapshot) = wire.clone();
-    let _ = app.emit("sessions:update", &wire);
+    let (wire, total) = apply_approvals_to_snapshot(state, Some(sessions));
+    emit_update(app, state, wire, total);
 }
 
 fn emit_current(app: &AppHandle, state: &AppState) {
-    let wire = apply_approvals_to_snapshot(state, None);
-    *lock(&state.snapshot) = wire.clone();
-    let _ = app.emit("sessions:update", &wire);
+    let (wire, total) = apply_approvals_to_snapshot(state, None);
+    emit_update(app, state, wire, total);
 }
 
-fn emit_if_changed(app: &AppHandle, state: &AppState, wire: Vec<SessionWire>) {
-    let mut snap = lock(&state.snapshot);
-    if *snap == wire {
-        return;
+fn emit_if_changed(app: &AppHandle, state: &AppState, wire: Vec<SessionWire>, total: usize) {
+    {
+        let snap = lock(&state.snapshot);
+        let prev_total = *lock(&state.total);
+        if *snap == wire && prev_total == total {
+            return;
+        }
     }
-    *snap = wire.clone();
-    drop(snap);
-    let _ = app.emit("sessions:update", &wire);
+    emit_update(app, state, wire, total);
+}
+
+fn emit_health(app: &AppHandle, health: &HealthSnapshot) {
+    let degraded: std::collections::HashSet<&str> =
+        health.degraded.iter().map(|s| s.as_str()).collect();
+    let adapters = ["claude code", "codex", "cursor", "opencode"]
+        .iter()
+        .map(|h| AdapterHealth {
+            harness: (*h).into(),
+            status: if degraded.contains(h) {
+                "degraded".into()
+            } else {
+                "ok".into()
+            },
+        })
+        .collect();
+    let _ = app.emit(
+        "health",
+        &HealthEvent {
+            watcher: true,
+            adapters,
+            serve: opencode::healthy(),
+        },
+    );
 }
 
 /// Approval detection using cached session cwds — no adapter scans.
@@ -320,19 +389,12 @@ fn refresh_approvals(state: &AppState) -> Vec<(String, String)> {
     auto_toasts
 }
 
-fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 pub fn start_watcher(app: AppHandle, state: Arc<AppState>) {
     // Single emitter thread: fs events + 2s tick (approvals + re-finalize).
     thread::spawn(move || {
         let handle = app;
         let st = state;
-        if let Err(e) = watch_sessions(MAX_AGE_HOURS, LIMIT, move |sessions, reason| {
+        if let Err(e) = watch_sessions(MAX_AGE_HOURS, SCAN_LIMIT, move |sessions, reason, health| {
             *lock(&st.sessions) = sessions.clone();
 
             let auto_toasts = if reason == SnapshotReason::Tick {
@@ -341,23 +403,28 @@ pub fn start_watcher(app: AppHandle, state: Arc<AppState>) {
                 Vec::new()
             };
 
-            let wire = apply_approvals_to_snapshot(&st, Some(sessions));
+            let (wire, total) = apply_approvals_to_snapshot(&st, Some(sessions));
             match reason {
-                SnapshotReason::Tick => emit_if_changed(&handle, &st, wire),
+                SnapshotReason::Tick => emit_if_changed(&handle, &st, wire, total),
                 SnapshotReason::Startup | SnapshotReason::Fs => {
-                    *lock(&st.snapshot) = wire.clone();
-                    let _ = handle.emit("sessions:update", &wire);
+                    emit_update(&handle, &st, wire, total);
                 }
+            }
+
+            // Health on every tick (and startup) so serve/degraded flips show up.
+            if reason == SnapshotReason::Tick || reason == SnapshotReason::Startup {
+                emit_health(&handle, &health);
             }
 
             for (sid, text) in auto_toasts {
                 let short = if sid.len() > 8 { &sid[..8] } else { &sid };
-                let html = format!(
-                    "yolo approved <b>{}</b> · {}",
-                    escape_html(short),
-                    escape_html(&text)
+                let _ = handle.emit(
+                    "toast",
+                    &ToastEvent {
+                        label: format!("yolo approved {short}"),
+                        detail: Some(text),
+                    },
                 );
-                let _ = handle.emit("toast", &ToastEvent { html });
             }
         }) {
             eprintln!("session watcher failed: {e}");
@@ -366,15 +433,23 @@ pub fn start_watcher(app: AppHandle, state: Arc<AppState>) {
 }
 
 #[tauri::command]
-pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Vec<SessionWire> {
+pub fn list_sessions(state: State<'_, Arc<AppState>>) -> SessionsUpdate {
     let snap = lock(&state.snapshot);
+    let total = *lock(&state.total);
     if !snap.is_empty() {
-        return snap.clone();
+        return SessionsUpdate {
+            sessions: snap.clone(),
+            total: if total == 0 { snap.len() } else { total },
+        };
     }
     drop(snap);
-    let wire = apply_approvals_to_snapshot(&state, None);
+    let (wire, total) = apply_approvals_to_snapshot(&state, None);
     *lock(&state.snapshot) = wire.clone();
-    wire
+    *lock(&state.total) = total;
+    SessionsUpdate {
+        sessions: wire,
+        total,
+    }
 }
 
 #[tauri::command]
@@ -415,7 +490,7 @@ pub fn spawn_session(
                 spawn_time,
             },
         );
-        let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
+        let sessions = scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None);
         emit_snapshot(&app, &state, sessions);
     }
 
@@ -427,10 +502,43 @@ pub fn spawn_session(
     let tmux_name2 = tmux_name.clone();
     let known_sid = spawned.sid.clone();
     thread::spawn(move || {
+        // ~2s spawn health: dead pane → toast + scrub ghost placeholder.
+        thread::sleep(Duration::from_secs(2));
+        if tmux::pane_dead(&tmux_name2) {
+            let detail = spawn_failure_detail(&tmux_name2);
+            scrub_dead_spawn(&st, known_sid.as_deref(), &tmux_name2);
+            let sessions = scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None);
+            emit_snapshot(&app2, &st, sessions);
+            let _ = app2.emit(
+                "toast",
+                &ToastEvent {
+                    label: format!("spawn failed · {tmux_name2}"),
+                    detail: Some(detail),
+                },
+            );
+            let _ = tmux::kill(&tmux_name2);
+            return;
+        }
+
         if known_sid.is_some() {
             for _ in 0..120 {
                 thread::sleep(Duration::from_millis(500));
-                let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
+                if tmux::pane_dead(&tmux_name2) {
+                    let detail = spawn_failure_detail(&tmux_name2);
+                    scrub_dead_spawn(&st, known_sid.as_deref(), &tmux_name2);
+                    let sessions = scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None);
+                    emit_snapshot(&app2, &st, sessions);
+                    let _ = app2.emit(
+                        "toast",
+                        &ToastEvent {
+                            label: format!("spawn failed · {tmux_name2}"),
+                            detail: Some(detail),
+                        },
+                    );
+                    let _ = tmux::kill(&tmux_name2);
+                    return;
+                }
+                let sessions = scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None);
                 let found = sessions.iter().any(|s| Some(&s.sid) == known_sid.as_ref());
                 emit_snapshot(&app2, &st, sessions);
                 if found {
@@ -452,7 +560,7 @@ pub fn spawn_session(
                         eprintln!("owned.json save failed: {e}");
                     }
                 }
-                let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
+                let sessions = scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None);
                 emit_snapshot(&app2, &st, sessions);
             }
             None => {
@@ -465,6 +573,56 @@ pub fn spawn_session(
     });
 
     Ok(tmux_name)
+}
+
+fn spawn_failure_detail(tmux_name: &str) -> String {
+    match tmux::capture_pane(tmux_name, -40) {
+        Ok(pane) => {
+            let lines: Vec<&str> = pane
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect();
+            let take = lines.len().saturating_sub(6);
+            let tail = lines[take..].join(" · ");
+            if tail.is_empty() {
+                "pane exited with no output".into()
+            } else {
+                tail
+            }
+        }
+        Err(_) => "pane exited (no capture)".into(),
+    }
+}
+
+fn scrub_dead_spawn(state: &AppState, sid: Option<&str>, tmux_name: &str) {
+    if let Some(sid) = sid {
+        lock(&state.pending).remove(sid);
+        let mut map = lock(&state.owned);
+        map.remove(sid);
+        let path = lock(&state.owned_path).clone();
+        if let Err(e) = owned::save(&path, &map) {
+            eprintln!("owned.json save after dead spawn failed: {e}");
+        }
+    } else {
+        // Sid unknown — drop any owned entry pointing at this tmux name.
+        let mut map = lock(&state.owned);
+        let victims: Vec<String> = map
+            .iter()
+            .filter(|(_, e)| e.tmux == tmux_name)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for sid in &victims {
+            map.remove(sid);
+            lock(&state.pending).remove(sid);
+        }
+        if !victims.is_empty() {
+            let path = lock(&state.owned_path).clone();
+            if let Err(e) = owned::save(&path, &map) {
+                eprintln!("owned.json save after dead spawn failed: {e}");
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -495,7 +653,7 @@ pub fn send_prompt(
                 if !cached.is_empty() {
                     cached
                 } else {
-                    scan_sessions(MAX_AGE_HOURS, LIMIT, None)
+                    scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None)
                 }
             };
             to_wire(&sessions, &owned, &approvals)

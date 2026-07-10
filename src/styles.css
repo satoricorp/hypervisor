@@ -271,8 +271,14 @@ html, body, #root {
     padding: 7px 14px; border-top: 1px solid var(--border);
     font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums;
   }
+  .statusbar .health { color: var(--ink-3); max-width: 42%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .statusbar .hints { margin-left: auto; }
   .statusbar kbd { font: inherit; color: var(--ink-2); }
+  .sidefoot {
+    margin: 8px 12px 4px; padding: 6px 8px;
+    font-size: 10px; color: var(--ink-3);
+    border-top: 1px solid var(--border);
+  }
   .yolobtn {
     font: inherit; font-size: 10px; color: var(--ink-3);
     background: none; border: 0; cursor: pointer; padding: 0;

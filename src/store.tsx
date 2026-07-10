@@ -73,6 +73,7 @@ function withPalItems(state: AppState): AppState {
 export const initialState: AppState = withPalItems(
   withMenuItems({
     sessions: [],
+    total: 0,
     sel: 0,
     subSel: -1,
     view: "session",
@@ -86,7 +87,8 @@ export const initialState: AppState = withPalItems(
     },
     palette: { open: false, active: 0, filter: "", items: [] },
     yolo: false,
-    toasts: { html: "", show: false },
+    toasts: { label: "", show: false },
+    health: { watcher: false, adapters: [], serve: false },
     prompt: "",
     historyFilter: "",
   }),
@@ -99,7 +101,7 @@ export type Action =
   | { type: "SHOW_VIEW"; view: ViewName }
   | { type: "SET_PROMPT"; value: string }
   | { type: "SET_HISTORY_FILTER"; value: string }
-  | { type: "TOAST"; html: string }
+  | { type: "TOAST"; label: string; detail?: string }
   | { type: "HIDE_TOAST" }
   | { type: "OPEN_MENU" }
   | { type: "CLOSE_MENU" }
@@ -112,7 +114,15 @@ export type Action =
   | { type: "PAL_ACTIVE"; active: number }
   | { type: "SET_YOLO"; on: boolean }
   | { type: "SET_YOLO_SILENT"; on: boolean }
-  | { type: "SET_SESSIONS"; sessions: Session[] }
+  | { type: "SET_SESSIONS"; sessions: Session[]; total: number }
+  | {
+      type: "SET_HEALTH";
+      health: {
+        watcher: boolean;
+        adapters: { harness: string; status: string }[];
+        serve: boolean;
+      };
+    }
   | { type: "APPROVE_SEL" }
   | { type: "CHOOSE_MENU" }
   | { type: "CHOOSE_PAL" }
@@ -127,8 +137,12 @@ export type Action =
       model: string;
     };
 
-function toast(state: AppState, html: string): AppState {
-  return { ...state, toasts: { html, show: true } };
+function toast(
+  state: AppState,
+  label: string,
+  detail?: string,
+): AppState {
+  return { ...state, toasts: { label, detail, show: true } };
 }
 
 function select(state: AppState, i: number): AppState {
@@ -163,14 +177,6 @@ function mutateSessions(
   const sessions = deepCloneSessions(state.sessions);
   fn(sessions);
   return { ...state, sessions };
-}
-
-function esc(s: string): string {
-  return String(s).replace(
-    /[&<>"]/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string,
-  );
 }
 
 function harnessLabel(target: string): string {
@@ -213,7 +219,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "SET_HISTORY_FILTER":
       return { ...state, historyFilter: action.value };
     case "TOAST":
-      return toast(state, action.html);
+      return toast(state, action.label, action.detail);
     case "HIDE_TOAST":
       return { ...state, toasts: { ...state.toasts, show: false } };
     case "OPEN_MENU":
@@ -289,8 +295,10 @@ export function reducer(state: AppState, action: Action): AppState {
         const idx = sessions.findIndex((s) => s.sid === prevSid);
         if (idx >= 0) sel = idx;
       }
-      return { ...state, sessions, sel };
+      return { ...state, sessions, total: action.total, sel };
     }
+    case "SET_HEALTH":
+      return { ...state, health: action.health };
     case "CLEAR_PROMPT":
       return { ...state, prompt: "" };
     case "OPTIMISTIC_SENT":
@@ -341,10 +349,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ) {
           return toast(next, "lands in M3/M4");
         }
-        return toast(
-          next,
-          `<b>/${esc(it.id)}</b> — concept only, not wired yet`,
-        );
+        return toast(next, `/${it.id}`, "concept only, not wired yet");
       }
       if (state.menu.step === "target") {
         return withMenuItems({
@@ -450,7 +455,8 @@ async function runSpawn(
     const name = await spawnSession(harness, model, cwd);
     dispatch({
       type: "TOAST",
-      html: `spawned <b>${esc(name)}</b> · ${esc(harness)} · ${esc(model)}`,
+      label: name,
+      detail: `${harness} · ${model}`,
     });
     if (cmd === "subagents") {
       const title = parent?.title || "session";
@@ -458,7 +464,8 @@ async function runSpawn(
       if (!sid) {
         dispatch({
           type: "TOAST",
-          html: "handoff prompt must be sent manually — mapping timed out",
+          label: "handoff timed out",
+          detail: "prompt must be sent manually",
         });
         return;
       }
@@ -466,14 +473,14 @@ async function runSpawn(
         await sendPrompt(sid, `handoff — ${title}`);
         dispatch({
           type: "TOAST",
-          html: `↳ handoff sent to <b>${esc(sid.slice(0, 8))}</b>`,
+          label: `handoff → ${sid.slice(0, 8)}`,
         });
       } catch (e) {
-        dispatch({ type: "TOAST", html: esc(String(e)) });
+        dispatch({ type: "TOAST", label: String(e) });
       }
     }
   } catch (e) {
-    dispatch({ type: "TOAST", html: esc(String(e)) });
+    dispatch({ type: "TOAST", label: String(e) });
   }
 }
 
@@ -519,14 +526,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     let unlistenToast: (() => void) | undefined;
+    let unlistenHealth: (() => void) | undefined;
 
     (async () => {
       try {
-        const [wire, yolo] = await Promise.all([listSessions(), getYolo()]);
+        const [update, yolo] = await Promise.all([listSessions(), getYolo()]);
         if (!cancelled) {
           dispatch({
             type: "SET_SESSIONS",
-            sessions: wire.map(wireToSession),
+            sessions: update.sessions.map(wireToSession),
+            total: update.total,
           });
           if (yolo) dispatch({ type: "SET_YOLO_SILENT", on: true });
         }
@@ -534,27 +543,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!cancelled) {
           dispatch({
             type: "TOAST",
-            html: `failed to load sessions: ${esc(String(e))}`,
+            label: "failed to load sessions",
+            detail: String(e),
           });
         }
       }
       try {
-        unlisten = await listen<SessionWire[]>("sessions:update", (ev) => {
-          const sessions = (ev.payload || []).map(wireToSession);
-          tvOnRed(sessions);
-          dispatch({ type: "SET_SESSIONS", sessions });
-        });
+        unlisten = await listen<{ sessions: SessionWire[]; total: number }>(
+          "sessions:update",
+          (ev) => {
+            const payload = ev.payload || { sessions: [], total: 0 };
+            const sessions = (payload.sessions || []).map(wireToSession);
+            tvOnRed(sessions);
+            dispatch({
+              type: "SET_SESSIONS",
+              sessions,
+              total: payload.total ?? sessions.length,
+            });
+          },
+        );
       } catch (e) {
         console.error("listen sessions:update failed", e);
       }
       try {
-        unlistenToast = await listen<{ html: string }>("toast", (ev) => {
-          if (ev.payload?.html) {
-            dispatch({ type: "TOAST", html: ev.payload.html });
+        unlistenToast = await listen<{
+          label: string;
+          detail?: string | null;
+        }>("toast", (ev) => {
+          if (ev.payload?.label) {
+            dispatch({
+              type: "TOAST",
+              label: ev.payload.label,
+              detail: ev.payload.detail ?? undefined,
+            });
           }
         });
       } catch (e) {
         console.error("listen toast failed", e);
+      }
+      try {
+        unlistenHealth = await listen<{
+          watcher: boolean;
+          adapters: { harness: string; status: string }[];
+          serve: boolean;
+        }>("health", (ev) => {
+          if (ev.payload) {
+            dispatch({ type: "SET_HEALTH", health: ev.payload });
+          }
+        });
+      } catch (e) {
+        console.error("listen health failed", e);
       }
     })();
 
@@ -562,6 +600,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       unlisten?.();
       unlistenToast?.();
+      unlistenHealth?.();
     };
   }, []);
 
@@ -570,7 +609,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const t = setTimeout(() => dispatch({ type: "HIDE_TOAST" }), 3800);
       return () => clearTimeout(t);
     }
-  }, [state.toasts.show, state.toasts.html]);
+  }, [state.toasts.show, state.toasts.label, state.toasts.detail]);
 
   useEffect(() => {
     if (
@@ -607,21 +646,28 @@ export async function doApprove(
 ): Promise<void> {
   const s = state.sessions[state.sel];
   if (!s?.sid) {
-    dispatch({ type: "TOAST", html: "nothing pending approval on this session" });
+    dispatch({
+      type: "TOAST",
+      label: "nothing pending approval on this session",
+    });
     return;
   }
   if (!s.approval) {
-    dispatch({ type: "TOAST", html: "nothing pending approval on this session" });
+    dispatch({
+      type: "TOAST",
+      label: "nothing pending approval on this session",
+    });
     return;
   }
   try {
     await approveSession(s.sid);
     dispatch({
       type: "TOAST",
-      html: `approved <b>${esc(s.approval)}</b>`,
+      label: "approved",
+      detail: s.approval,
     });
   } catch (e) {
-    dispatch({ type: "TOAST", html: esc(String(e)) });
+    dispatch({ type: "TOAST", label: String(e) });
   }
 }
 
@@ -634,7 +680,7 @@ export async function doSetYolo(
     await setYolo(on);
     dispatch({ type: "SET_YOLO", on });
   } catch (e) {
-    dispatch({ type: "TOAST", html: esc(String(e)) });
+    dispatch({ type: "TOAST", label: String(e) });
   }
 }
 
@@ -648,17 +694,18 @@ export async function doSend(
 
   if (state.subSel < 0 && s.ctl === "observe") {
     if (!s.sid) {
-      dispatch({ type: "TOAST", html: "session has no sid yet" });
+      dispatch({ type: "TOAST", label: "session has no sid yet" });
       return;
     }
     try {
       const hv = await adoptSession(s.sid);
       dispatch({
         type: "TOAST",
-        html: `adopted as ${esc(hv)} — session now runs in the background`,
+        label: `adopted as ${hv}`,
+        detail: "session now runs in the background",
       });
     } catch (e) {
-      dispatch({ type: "TOAST", html: esc(String(e)) });
+      dispatch({ type: "TOAST", label: String(e) });
     }
     return;
   }
@@ -673,11 +720,12 @@ export async function doSend(
       await denySession(s.sid, text);
       dispatch({
         type: "TOAST",
-        html: `denied with guidance — <b>${esc(text)}</b>`,
+        label: "denied with guidance",
+        detail: text,
       });
       dispatch({ type: "OPTIMISTIC_SENT", i: state.sel, text });
     } catch (e) {
-      dispatch({ type: "TOAST", html: esc(String(e)) });
+      dispatch({ type: "TOAST", label: String(e) });
     }
     return;
   }
@@ -685,7 +733,7 @@ export async function doSend(
   dispatch({ type: "CLEAR_PROMPT" });
 
   if (!s.sid) {
-    dispatch({ type: "TOAST", html: "session has no sid yet" });
+    dispatch({ type: "TOAST", label: "session has no sid yet" });
     return;
   }
 
@@ -693,7 +741,7 @@ export async function doSend(
     await sendPrompt(s.sid, text);
     dispatch({ type: "OPTIMISTIC_SENT", i: state.sel, text });
   } catch (e) {
-    dispatch({ type: "TOAST", html: esc(String(e)) });
+    dispatch({ type: "TOAST", label: String(e) });
   }
 }
 

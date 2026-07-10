@@ -81,12 +81,21 @@ export interface PaletteState {
 }
 
 export interface ToastState {
-  html: string;
+  label: string;
+  detail?: string;
   show: boolean;
+}
+
+export interface HealthState {
+  watcher: boolean;
+  adapters: { harness: string; status: string }[];
+  serve: boolean;
 }
 
 export interface AppState {
   sessions: Session[];
+  /** Adapter session count before the LIMIT=8 display cap. */
+  total: number;
   sel: number;
   subSel: number;
   view: ViewName;
@@ -94,6 +103,7 @@ export interface AppState {
   palette: PaletteState;
   yolo: boolean;
   toasts: ToastState;
+  health: HealthState;
   prompt: string;
   historyFilter: string;
 }

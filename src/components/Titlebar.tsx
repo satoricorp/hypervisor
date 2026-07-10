@@ -14,7 +14,7 @@ export function Titlebar() {
         invoke<boolean>("toggle_tv")
           .then(setTvOn)
           .catch((err) =>
-            dispatch({ type: "TOAST", html: `tv: ${String(err)}` }),
+            dispatch({ type: "TOAST", label: "tv", detail: String(err) }),
           );
       }
     };
@@ -40,7 +40,7 @@ export function Titlebar() {
         setTvOn(await invoke<boolean>("toggle_tv"));
       }
     } catch (e) {
-      dispatch({ type: "TOAST", html: `tv: ${String(e)}` });
+      dispatch({ type: "TOAST", label: "tv", detail: String(e) });
     }
   }
 

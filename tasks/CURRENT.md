@@ -1,76 +1,98 @@
-# H3 — surface failures + webview safety
+# M7g — the grammar core: one language, stable ids, survives window close
 
-**You are building exactly one thing this session:** the app stops hiding
-its failures (spawn deaths, adapter degradation, the 8-session cap) and the
-webview stops trusting raw HTML.
+**Prerequisite gate: H1 must be ticked in PLAN.md** (owned.json v2 carries
+harness; tests are safe). M3x should be closed too — the grammar routes
+into approvals and must stand on live-proven ground; if M3x is still open,
+stop and report.
+
+**You are building exactly one thing this session:** the backend command
+grammar that every future surface shares (menu bar dropdown, ⌥Space, the
+tailnet phone page, iMessage), plus the two properties it needs to be safe:
+**stable session ids** and **a backend that outlives the window**. No tray,
+no notifications, no HTTP server — those are M7/M8a.
+
+This is the grammar work extracted from M7 (see design/macos-surface.md
+"The grammar is universal") so remote doesn't wait on tray/notification
+plumbing. PLAN.md's rule stands: the parser is built once, in the backend,
+never per-surface.
+
+## The grammar (from design/macos-surface.md, unchanged)
+
+`status` → the board · `<letter>` → approve that pending request ·
+`N: <text>` → prompt session N · `nudge N` → send "continue" to session N ·
+anything else → one-line help. Case-insensitive, forgiving whitespace.
+Deny stays what it already is: `N: <guidance>` at a session with a pending
+approval denies with that guidance (same rule as the desktop prompt bar).
+
+## Stable ids (the design change — spec in design/remote.md §stable ids)
+
+Today session numbers are sidebar positions, resorted by mtime on every
+update. Over an async channel, `3: yes go ahead` can hit the wrong agent
+because the board moved after you read it. Change:
+
+- The registry assigns each session a **stable number on first sight**
+  (monotonic, never reused for the process lifetime). Wire gains `n`.
+- The sidebar still sorts by mtime, but each row's keycap shows its stable
+  `n`, and digit keys select by stable number — not by position. With >9
+  sessions, numbers still display; digits cover 1–9 (j/k and ⌘K reach the
+  rest).
+- Approval **letters** (A, B, …) are assigned on detection, stable while
+  pending, never reused in-process, and can never collide with numbers
+  (letters vs digits — enforce by construction, add a test).
+- DECISION latitude: if stable-number keycaps read badly in the sidebar,
+  propose an alternative presentation in Evidence — but the wire/grammar
+  semantics (stable `n`, stable letters) are non-negotiable.
 
 ## Steps
 
-1. **CSP.** `tauri.conf.json` `security.csp` is currently `null`. Set a
-   real policy (`default-src 'self'` baseline; `style-src` inline only if
-   the CSS genuinely needs it; the ipc/asset origins Tauri requires). The
-   tv satellite window is remote-content by design and must still open —
-   verify, don't touch its code.
-2. **Structured toasts.** `ToastEvent` becomes
-   `{ label: String, detail: Option<String> }` — no HTML across the wire,
-   ever. Frontend `Toast` renders text nodes (bold label styled in the
-   component, not via markup in the payload). Kill
-   `dangerouslySetInnerHTML` in Toast.tsx and every `TOAST` dispatch that
-   builds HTML strings (store.tsx). The `iconOf` innerHTML call sites
-   (static local SVG constants) may stay. Rationale: approval text comes
-   from pane captures — agent-influenced content — and today one forgotten
-   `esc()` is an XSS with `invoke("approve_session")` reach.
-3. **Spawn health.** ~2s after `/new` (and adopt), check the pane is alive
-   (`tmux -L hypervisor has-session` / pane_dead). Dead → toast the last
-   pane lines (e.g. `claude: command not found`) and remove the pending
-   placeholder + owned entry. Today a failed spawn leaves a ghost
-   "new session — xxxxxxxx" row forever and logs only to a terminal
-   nobody is watching.
-4. **Health line.** Statusbar gains a quiet segment fed by a `health`
-   event: watcher alive · per-adapter last-scan ok/degraded · serve
-   up/down. One glance replaces reading eprintln output.
-5. **Sidebar overflow.** Wire gains `total`; when total > shown, the
-   sidebar footer shows `+N more · not monitored` — honest about the
-   `LIMIT = 8` cap.
-6. **Subagents.** `wireToSession` always emits `subs: []`, so the h/l
-   keyboard affordance is dead on live data. Populate claude code `subs`
-   from sidechain rows (target/task/state — `spike/hvwatch.py` is the
-   oracle). If the transcript data can't support it cleanly, write a
-   `// DECISION:` comment explaining why, leave subs empty, and hide the
-   h/l hint when a session has none. Either way, stop advertising a dead
-   feature.
+1. `src-tauri/src/grammar.rs`: a pure parser (`&str → Command` enum) and an
+   executor that routes through the EXISTING handlers — `approve_session`,
+   `deny_session`, `send_prompt` — no second code path. `status` formatter:
+   `● 2 working · ● 1 done · ● 1 needs you` + one line per red
+   (`A · 3 · <title> — wants: <command>`). Unit tests: every grammar arm,
+   unknown input → help text, the letter/number non-collision property,
+   formatter snapshot.
+2. Stable ids in the registry/state layer: numbers keyed by sid, letters
+   keyed by approval identity (opencode request id / tmux fingerprint).
+   Survive snapshot churn; process-lifetime only (no persistence needed).
+3. Window close ≠ quit: intercept `CloseRequested` → hide the window; the
+   backend (watcher, tick, yolo) keeps running. ⌘Q / dock quit remain real
+   exits. On real exit, owned tmux sessions deliberately survive — log a
+   line naming any still `working`.
+4. A proof harness so the grammar is exercisable before any transport
+   exists: `hvscan cmd "<text>"` subcommand (preferred — headless,
+   scriptable) or a temporary tauri command. `// DECISION:` the choice.
 
 ## Definition of done
 
-1. CSP proof: a `<script src="https://example.com/x.js">` injected via
-   devtools is blocked (console error captured in Evidence); the app is
-   fully functional afterwards; the tv window still opens.
-2. `grep -rn dangerouslySetInnerHTML src/` shows only `iconOf` call sites.
-3. Spawning with the harness CLI unavailable (e.g. a PATH-stripped wrapper
-   script) produces a visible toast naming the failure; no ghost
-   placeholder or owned entry remains.
-4. Kill `opencode serve` mid-run → the health segment flips within one
-   tick; the rest of the sidebar keeps working.
-5. With >8 recent sessions on disk, the footer shows the overflow count.
-6. `python3 spike/compare.py` OK · `bunx tsc --noEmit` · `cargo test --lib`
+1. Grammar unit tests green (arms, collision property, formatter).
+2. `hvscan cmd "status"` prints the live board. `hvscan cmd "3: say hi"`
+   lands in a real owned session (transcript proof). `hvscan cmd "a"`
+   approves a real pending opencode permission (use the /tmp trigger
+   config from tasks/M3.md Evidence).
+3. Close the main window: the app keeps running; a permission request
+   raised while the window is closed is still detected (log proof);
+   reopening from the dock shows the window with live state.
+4. Sidebar shows stable numbers; when a session finishes and the list
+   re-sorts, no other session is renumbered; digit keys follow the stable
+   numbers.
+5. `python3 spike/compare.py` OK · `bunx tsc --noEmit` · `cargo test --lib`
    · `npm run tauri dev` boots.
 
 ## Scope fence
 
-- No loop restructuring beyond emitting health (H2 owns the loop).
-- No remote/grammar work. The mockup DOM stays the contract for everything
-  not listed here.
-- Adapters: only the sidechain-population change in step 6; compare.py
-  must stay OK (it compares the fields it compares — extending subs data
-  must not alter existing fields).
+- No HTTP server, no tailscale, no chat.db, no tray icon, no global
+  shortcut, no notifications, no power assertion (M8a takes keep-awake).
+- Adapters untouched.
 
 ## When done
 
-1. Evidence: CSP console error, the failed-spawn toast, health-line
-   screenshot or DOM text, overflow footer proof.
-2. Tick H3 in PLAN.md.
-3. Refresh `tasks/CURRENT.md` with `tasks/M7g.md`.
-4. Commit: `H3: CSP + structured toasts, spawn health, adapter health line, overflow honesty`.
+1. Evidence: test output, `hvscan cmd` transcripts, the window-closed
+   detection proof, a before/after of the stable-number sidebar.
+2. Tick M7g in PLAN.md.
+3. Refresh `tasks/CURRENT.md` with `tasks/M8a.md` (its gate now points at
+   M7g).
+4. Commit: `M7g: shared command grammar, stable session ids, backend survives window close`.
 
 ## Evidence
 
