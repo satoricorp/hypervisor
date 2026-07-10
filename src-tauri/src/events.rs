@@ -5,6 +5,7 @@ use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::owned::OwnedMap;
 use crate::control::{opencode, owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
+use crate::remote::SseBus;
 use crate::stable_ids::{self, StableIds};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -103,6 +104,8 @@ pub struct AppState {
     pub yolo_seen: Mutex<std::collections::HashSet<String>>,
     /// Stable session numbers + approval letters (M7g).
     pub ids: Mutex<StableIds>,
+    /// SSE broadcast for the M8a phone page.
+    pub remote_bus: Arc<SseBus>,
 }
 
 fn now_secs() -> f64 {
@@ -284,13 +287,12 @@ fn apply_approvals_to_snapshot(
 fn emit_update(app: &AppHandle, state: &AppState, wire: Vec<SessionWire>, total: usize) {
     *lock(&state.snapshot) = wire.clone();
     *lock(&state.total) = total;
-    let _ = app.emit(
-        "sessions:update",
-        &SessionsUpdate {
-            sessions: wire,
-            total,
-        },
-    );
+    let update = SessionsUpdate {
+        sessions: wire,
+        total,
+    };
+    let _ = app.emit("sessions:update", &update);
+    crate::remote::broadcast_sessions(&state.remote_bus, &update);
 }
 
 pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
@@ -734,17 +736,7 @@ pub fn approve_session(
     state: State<'_, Arc<AppState>>,
     sid: String,
 ) -> Result<(), String> {
-    let pending = {
-        let map = lock(&state.approvals);
-        map.get(&sid)
-            .cloned()
-            .ok_or_else(|| "nothing pending approval on this session".to_string())?
-    };
-    let tmux_target = lock(&state.owned).get(&sid).map(|e| e.tmux.clone());
-    approvals::approve(&pending, tmux_target.as_deref())?;
-    lock(&state.approvals).remove(&sid);
-    emit_current(&app, &state);
-    Ok(())
+    approve_sid(&app, &state, &sid)
 }
 
 #[tauri::command]
@@ -754,17 +746,7 @@ pub fn deny_session(
     sid: String,
     guidance: String,
 ) -> Result<(), String> {
-    let pending = {
-        let map = lock(&state.approvals);
-        map.get(&sid)
-            .cloned()
-            .ok_or_else(|| "nothing pending approval on this session".to_string())?
-    };
-    let tmux_target = lock(&state.owned).get(&sid).map(|e| e.tmux.clone());
-    approvals::deny(&pending, &guidance, tmux_target.as_deref())?;
-    lock(&state.approvals).remove(&sid);
-    emit_current(&app, &state);
-    Ok(())
+    deny_sid(&app, &state, &sid, &guidance)
 }
 
 #[tauri::command]
@@ -779,4 +761,93 @@ pub fn set_yolo(state: State<'_, Arc<AppState>>, on: bool) -> Result<(), String>
 #[tauri::command]
 pub fn get_yolo(state: State<'_, Arc<AppState>>) -> bool {
     *lock(&state.yolo)
+}
+
+// ——— helpers for the M8a remote HTTP layer (same code path as tauri cmds) ———
+
+pub fn current_sessions(state: &AppState) -> SessionsUpdate {
+    let snap = lock(&state.snapshot);
+    let total = *lock(&state.total);
+    if !snap.is_empty() {
+        return SessionsUpdate {
+            sessions: snap.clone(),
+            total: if total == 0 { snap.len() } else { total },
+        };
+    }
+    drop(snap);
+    let (wire, total) = apply_approvals_to_snapshot(state, None);
+    *lock(&state.snapshot) = wire.clone();
+    *lock(&state.total) = total;
+    SessionsUpdate {
+        sessions: wire,
+        total,
+    }
+}
+
+pub fn ids_snapshot(state: &AppState) -> StableIds {
+    lock(&state.ids).clone()
+}
+
+pub fn approve_sid(app: &AppHandle, state: &AppState, sid: &str) -> Result<(), String> {
+    let pending = {
+        let map = lock(&state.approvals);
+        map.get(sid)
+            .cloned()
+            .ok_or_else(|| "nothing pending approval on this session".to_string())?
+    };
+    let tmux_target = lock(&state.owned).get(sid).map(|e| e.tmux.clone());
+    approvals::approve(&pending, tmux_target.as_deref())?;
+    lock(&state.approvals).remove(sid);
+    emit_current(app, state);
+    Ok(())
+}
+
+pub fn deny_sid(
+    app: &AppHandle,
+    state: &AppState,
+    sid: &str,
+    guidance: &str,
+) -> Result<(), String> {
+    let pending = {
+        let map = lock(&state.approvals);
+        map.get(sid)
+            .cloned()
+            .ok_or_else(|| "nothing pending approval on this session".to_string())?
+    };
+    let tmux_target = lock(&state.owned).get(sid).map(|e| e.tmux.clone());
+    approvals::deny(&pending, guidance, tmux_target.as_deref())?;
+    lock(&state.approvals).remove(sid);
+    emit_current(app, state);
+    Ok(())
+}
+
+pub fn prompt_sid(state: &AppState, sid: &str, text: &str) -> Result<(), String> {
+    {
+        let map = lock(&state.owned);
+        if let Some(entry) = map.get(sid).cloned() {
+            drop(map);
+            return tmux::send(&entry.tmux, text);
+        }
+    }
+    let sess = {
+        let snap = lock(&state.snapshot);
+        snap.iter().find(|s| s.sid == sid).cloned()
+    };
+    let sess = match sess {
+        Some(s) => s,
+        None => {
+            return Err(format!("session {sid} not found"));
+        }
+    };
+    if sess.harness == "opencode" {
+        return crate::control::opencode::prompt_async(sid, &sess.cwd, text);
+    }
+    Err("session is observe-only — adopt it on the desktop first".into())
+}
+
+pub fn any_owned_working(state: &AppState) -> bool {
+    let owned = lock(&state.owned);
+    let snap = lock(&state.snapshot);
+    snap.iter()
+        .any(|s| owned.contains_key(&s.sid) && s.state == "working")
 }

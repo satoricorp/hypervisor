@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Hypervisor</title>
+<style>
+  @font-face {
+    font-family: "Xer0";
+    src: url("/Xer0-Regular.otf") format("opentype");
+    font-weight: 700;
+    font-display: block;
+  }
+  :root {
+    --bg: #0a0c0e; --surface: #10141a; --surface-2: #151a21;
+    --inset: #0c0f13; --border: #1f242b; --border-2: #2e3540;
+    --ink: #dee3e8; --ink-2: #8a93a0; --ink-3: #545e6b; --sel: #e9edf2;
+    --ok: #46d68c; --busy: #e2a33e; --err: #e5544b; --mint: #57e0c9;
+    --mono: "Berkeley Mono", "TX-02", ui-monospace, "SF Mono", Menlo, monospace;
+    --r-chip: 2px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: var(--mono); font-size: 12px; -webkit-font-smoothing: antialiased; }
+  body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto;
+    min-height: 100dvh; }
+  .hv-head {
+    padding: max(14px, env(safe-area-inset-top)) 16px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 7px; background: var(--inset);
+  }
+  .hv-brand { display: flex; align-items: baseline; gap: 8px; }
+  .hv-mark { font-family: "Xer0", var(--mono); font-weight: 700; font-size: 13px;
+    letter-spacing: .14em; color: var(--sel); }
+  .hv-net { font-size: 9px; color: var(--mint); margin-left: auto; }
+  .hv-net::before { content: "⏻ "; }
+  .hv-sum { display: flex; gap: 12px; font-size: 10px; color: var(--ink-2); }
+  .hv-sum span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+  .d-ok { background: var(--ok); } .d-busy { background: var(--busy); animation: pulse 1.5s infinite; }
+  .d-err { background: var(--err); animation: pulse 2.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  .hv-body { flex: 1; overflow-y: auto; padding: 12px 14px 8px;
+    display: flex; flex-direction: column; gap: 7px; -webkit-overflow-scrolling: touch; }
+  .ln { display: flex; gap: 8px; font-size: 11px; line-height: 1.55; }
+  .ln .ts { flex: none; color: var(--ink-3); font-size: 9px; padding-top: 2px; width: 32px; }
+  .ln .tx { min-width: 0; color: var(--ink-2); word-break: break-word; flex: 1; }
+  .ln .tx.me { color: var(--ink); }
+  .ln .tx.me::before { content: "❯ "; color: var(--sel); }
+  .ln .tx.dim { color: var(--ink-3); }
+  .ln .tx .d { font-size: 13px; line-height: 1; vertical-align: -1px; }
+  .d.ok { color: var(--ok); } .d.busy { color: var(--busy); } .d.err { color: var(--err); }
+  .tx .red { color: var(--err); }
+  .ln.tap { cursor: pointer; border-radius: 6px; margin: 0 -6px; padding: 2px 6px; }
+  .ln.tap:active { background: var(--surface-2); }
+  .ln.tap .go { color: var(--ink-3); flex: none; padding-top: 1px; }
+  .alet {
+    display: inline-grid; place-items: center;
+    width: 16px; height: 16px; border-radius: 4px;
+    background: var(--err); color: #fff; font-size: 10px; font-weight: 700;
+    vertical-align: -3px; margin-right: 2px;
+  }
+
+  .bigwrap { padding: 8px 12px 0; position: relative; }
+  .bigapprove {
+    width: 100%; font: inherit; cursor: pointer; text-align: center;
+    background: var(--sel); color: var(--bg);
+    border: 0; border-radius: 12px;
+    padding: 9px 14px; min-height: 56px;
+    display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(0,0,0,.55), 0 1px 3px rgba(0,0,0,.35);
+    transition: background .12s, box-shadow .12s, transform .12s;
+    position: relative; overflow: hidden;
+  }
+  .bigapprove:active:not(.empty) {
+    background: #d9dde4;
+    box-shadow: 0 2px 8px rgba(0,0,0,.45);
+    transform: scale(.97);
+  }
+  .bigapprove.burst::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at center, rgba(70,214,140,.55), transparent 70%);
+    animation: burst .45s ease-out forwards; pointer-events: none;
+  }
+  @keyframes burst { from { opacity: 1; transform: scale(.6); } to { opacity: 0; transform: scale(1.4); } }
+  .ba-xer {
+    font-family: "Xer0", var(--mono);
+    font-size: 13px; font-weight: 700; letter-spacing: .08em; line-height: 1;
+  }
+  .ba-sub {
+    font-size: 10px; opacity: .72; line-height: 1.45;
+    word-break: break-all; text-align: center;
+  }
+  .bigapprove.empty {
+    background: var(--surface); color: var(--ink-3); cursor: default;
+    border: 1px solid var(--border); box-shadow: none; min-height: 48px;
+  }
+  .bigapprove.empty .ba-main { font-size: 12px; font-weight: 500; }
+
+  .sugg { display: flex; gap: 7px; padding: 8px 12px 0; flex-wrap: wrap; }
+  .sug {
+    font: inherit; font-size: 10px; color: var(--ink-3); cursor: pointer;
+    background: none; border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 3px 9px;
+  }
+  .sug:hover { color: var(--ink-2); border-color: var(--border-2); }
+
+  .hv-prompt {
+    border-top: 1px solid var(--border); background: var(--inset);
+    padding: 9px 12px max(18px, env(safe-area-inset-bottom));
+    display: flex; gap: 8px; align-items: center;
+  }
+  .hv-prompt input {
+    flex: 1; font: inherit; font-size: 12px; color: var(--ink);
+    background: none; border: 0; outline: none; min-width: 40px; caret-color: var(--sel);
+  }
+  .hv-prompt input::placeholder { color: var(--ink-3); }
+  .hv-send { font: inherit; font-size: 14px; background: none; border: 0;
+    color: var(--ink-2); cursor: pointer; padding: 2px 4px; }
+
+  .deny-sheet {
+    display: none; position: fixed; inset: 0; z-index: 20;
+    background: rgba(0,0,0,.55); align-items: flex-end; justify-content: center;
+  }
+  .deny-sheet.on { display: flex; }
+  .deny-card {
+    width: 100%; max-width: 480px; background: var(--surface);
+    border-top: 1px solid var(--border-2); padding: 16px 14px max(20px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .deny-card h5 { margin: 0; font-size: 11px; color: var(--ink); letter-spacing: .04em; }
+  .deny-card textarea {
+    font: inherit; font-size: 12px; color: var(--ink); background: var(--inset);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px; min-height: 64px;
+    resize: vertical; outline: none;
+  }
+  .deny-acts { display: flex; gap: 8px; }
+  .deny-acts button {
+    flex: 1; font: inherit; font-size: 11px; padding: 8px; cursor: pointer;
+    border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--ink);
+  }
+  .deny-acts button.pri { background: var(--err); border-color: var(--err); color: #fff; font-weight: 700; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+<body>
+  <div class="hv-head">
+    <div class="hv-brand">
+      <span class="hv-mark">HYPERVISOR</span>
+      <span class="hv-net" id="net">{{HOST}}</span>
+    </div>
+    <div class="hv-sum" id="sum">
+      <span><i class="dot d-busy"></i><span id="c-busy">0</span> working</span>
+      <span><i class="dot d-ok"></i><span id="c-ok">0</span> done</span>
+      <span><i class="dot d-err"></i><span id="c-err">0</span> need you</span>
+    </div>
+  </div>
+
+  <div class="hv-body" id="hvbody"></div>
+
+  <div class="bigwrap">
+    <button class="bigapprove empty" id="bigbtn" type="button">
+      <span class="ba-main"><span class="d ok">●</span> nothing needs you</span>
+    </button>
+  </div>
+  <div class="sugg">
+    <button class="sug" type="button">status</button>
+  </div>
+  <div class="hv-prompt">
+    <input id="hvinput" placeholder="tap a session · a approves · 3: prompt" autocomplete="off" spellcheck="false" />
+    <button class="hv-send" id="hvsend" type="button" aria-label="send">⏎</button>
+  </div>
+
+  <div class="deny-sheet" id="denysheet">
+    <div class="deny-card">
+      <h5 id="denytitle">deny</h5>
+      <textarea id="denytext" placeholder="guidance for the agent…"></textarea>
+      <div class="deny-acts">
+        <button type="button" id="denycancel">cancel</button>
+        <button type="button" class="pri" id="denygo">deny</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const feed = $('#hvbody'), input = $('#hvinput'), bigbtn = $('#bigbtn');
+  let sessions = [];
+  let queue = []; // { letter, n, sid, cmd, title }
+
+  const now = () => {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  };
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  function line(ts, html, cls) {
+    const el = document.createElement('div');
+    el.className = 'ln';
+    el.innerHTML = `<span class="ts">${ts}</span><span class="tx ${cls || ''}">${html}</span>`;
+    feed.appendChild(el);
+    feed.scrollTop = feed.scrollHeight;
+    return el;
+  }
+
+  function clearBoard() {
+    feed.innerHTML = '';
+  }
+
+  function dotClass(state) {
+    if (state === 'working' || state === 'stalled') return 'busy';
+    if (state === 'needs_you') return 'err';
+    return 'ok';
+  }
+
+  function rebuildFeed() {
+    clearBoard();
+    sessions.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'ln tap';
+      const title = esc(s.title || s.sid);
+      el.innerHTML = `<span class="ts"></span><span class="tx"><span class="d ${dotClass(s.state)}">●</span> ${s.n} ${title}</span><span class="go">›</span>`;
+      el.addEventListener('click', () => { input.value = `${s.n}: `; input.focus(); });
+      feed.appendChild(el);
+    });
+    queue.forEach(q => {
+      const el = document.createElement('div');
+      el.className = 'ln tap';
+      el.innerHTML = `<span class="ts"></span><span class="tx"><span class="alet">${esc(q.letter)}</span> <span class="red">${q.n} wants:</span> ${esc(q.cmd)}</span>`;
+      el.addEventListener('click', () => openDeny(q));
+      feed.appendChild(el);
+    });
+  }
+
+  function drawBig() {
+    const next = queue[0];
+    if (next) {
+      bigbtn.classList.remove('empty');
+      bigbtn.innerHTML = `<span class="ba-xer">APPROVE</span>
+        <span class="ba-sub">${esc(next.n)} · ${esc(next.cmd)}</span>`;
+    } else {
+      bigbtn.classList.add('empty');
+      const w = sessions.filter(s => s.state === 'working' || s.state === 'stalled').length;
+      const d = sessions.filter(s => s.state !== 'working' && s.state !== 'stalled' && s.state !== 'needs_you').length;
+      bigbtn.innerHTML = `<span class="ba-main"><span class="d ok">●</span> nothing needs you — ${w} working, ${d} done</span>`;
+    }
+  }
+
+  function updateSum() {
+    let working = 0, done = 0, needs = 0;
+    sessions.forEach(s => {
+      if (s.state === 'working' || s.state === 'stalled') working++;
+      else if (s.state === 'needs_you') needs++;
+      else done++;
+    });
+    // pending approvals count as needs even if state already set
+    needs = Math.max(needs, queue.length);
+    $('#c-busy').textContent = working;
+    $('#c-ok').textContent = done;
+    $('#c-err').textContent = needs;
+  }
+
+  function applySnapshot(payload) {
+    sessions = (payload.sessions || []).slice();
+    queue = sessions
+      .filter(s => s.approval && s.letter)
+      .map(s => ({
+        letter: String(s.letter).toUpperCase(),
+        n: s.n,
+        sid: s.sid,
+        cmd: s.approval,
+        title: s.title || s.sid,
+      }));
+    // Stable letter order A, B, …
+    queue.sort((a, b) => a.letter.localeCompare(b.letter));
+    rebuildFeed();
+    drawBig();
+    updateSum();
+  }
+
+  async function api(path, body) {
+    const opts = body === undefined
+      ? { credentials: 'same-origin' }
+      : {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        };
+    const r = await fetch(path, opts);
+    if (r.status === 403) throw new Error(await r.text());
+    return r.json();
+  }
+
+  function echo(t) { line(now(), esc(t), 'me'); }
+  function reply(t, cls) { line(now(), esc(t).replace(/\n/g, '<br>'), cls || 'dim'); }
+
+  async function sendCommand(text) {
+    const v = text.trim();
+    if (!v) return;
+    echo(v);
+    try {
+      const res = await api('/api/command', { text: v });
+      if (res.reply) reply(res.reply, res.ok ? 'dim' : 'dim');
+    } catch (e) {
+      reply(String(e.message || e), 'dim');
+    }
+  }
+
+  bigbtn.addEventListener('click', async () => {
+    if (!queue.length) return;
+    const letter = queue[0].letter;
+    bigbtn.classList.add('burst');
+    setTimeout(() => bigbtn.classList.remove('burst'), 450);
+    // No feed echo — queue advancing + later done-event are the confirmation.
+    try {
+      await api('/api/approve', { letter });
+    } catch (e) {
+      reply(String(e.message || e), 'dim');
+    }
+  });
+
+  let denyTarget = null;
+  function openDeny(q) {
+    denyTarget = q;
+    $('#denytitle').textContent = `deny ${q.letter} · ${q.n} · ${q.title}`;
+    $('#denytext').value = '';
+    $('#denysheet').classList.add('on');
+    $('#denytext').focus();
+  }
+  $('#denycancel').addEventListener('click', () => {
+    $('#denysheet').classList.remove('on');
+    denyTarget = null;
+  });
+  $('#denygo').addEventListener('click', async () => {
+    if (!denyTarget) return;
+    const guidance = $('#denytext').value.trim() || 'denied';
+    const letter = denyTarget.letter;
+    $('#denysheet').classList.remove('on');
+    denyTarget = null;
+    echo(`${letter} deny: ${guidance}`);
+    try {
+      const res = await api('/api/deny', { letter, guidance });
+      if (res.reply) reply(res.reply, 'dim');
+    } catch (e) {
+      reply(String(e.message || e), 'dim');
+    }
+  });
+
+  function submit() {
+    const v = input.value;
+    input.value = '';
+    sendCommand(v);
+  }
+  $('#hvsend').addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  document.querySelectorAll('.sug').forEach(b =>
+    b.addEventListener('click', () => { input.value = b.textContent; submit(); }));
+
+  // Initial load + SSE
+  api('/api/sessions').then(applySnapshot).catch(e => reply(String(e.message || e), 'dim'));
+
+  const es = new EventSource('/api/events');
+  es.addEventListener('sessions', (ev) => {
+    try { applySnapshot(JSON.parse(ev.data)); } catch (_) {}
+  });
+  es.onerror = () => { /* browser reconnects */ };
+})();
+</script>
+</body>
+</html>

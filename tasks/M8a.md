@@ -91,4 +91,56 @@ commit: `M8a: tailnet phone page — SSE triage, grammar over HTTP, APPROVE`.
 
 ## Evidence
 
-(builder fills this in — an empty Evidence section means the milestone is not done)
+### Decisions
+- **HTTP:** `tiny_http` over axum — no tokio/tower; SSE is a keep-alive writer
+  per connection. Bind hardcoded `127.0.0.1:7428` (SocketAddrV4 only).
+- **Keep-awake:** managed `caffeinate -dims` child; hold while any *owned*
+  session is `working`; release after 60s idle.
+
+### Auth / 403
+```
+$ curl -sS -w 'HTTP %{http_code}\n' http://127.0.0.1:7428/api/sessions
+tailscale not detected — remote auth has no login to match. …
+HTTP 403
+```
+Direct localhost without `Tailscale-User-Login` is rejected (correct).
+`HV_DEV=1` gates a localhost-only bypass for proofs (Tailscale.app not
+installed on this machine — `/usr/local/bin/tailscale` wrapper points at a
+missing binary). Settings shows `tailscale serve --bg 127.0.0.1:7428` and
+"off (tailscale not detected)".
+
+### Endpoints (HV_DEV=1)
+- `GET /` → phone page (APPROVE + EventSource), Xer0 font at `/Xer0-Regular.otf`
+- `GET /api/sessions` → snapshot with stable `n` / `letter`
+- `GET /api/events` → SSE first event **15–19ms** (well under 2s)
+- `POST /api/command {"text":"status"}` →
+  `● 0 working · ● 7 done · ● 1 needs you\nA · 4 · … — wants: Bash(…)`
+- `POST /api/approve {"letter":"A"}` →
+  `→ A · 4 · m7g closed-window detection bash script — approved`
+- `POST /api/deny {"letter":"A","guidance":"M8A deny — do not run that"}` →
+  `→ 1 · m7g closed-window detection bash script — denied`
+- `POST /api/command {"text":"1: reply with exactly M8A_PONG…"}` →
+  `→ 1 · m7g closed-window detection bash script — sent`
+- `POST /api/yolo` → **404** (no remote yolo)
+
+### Echo rule
+Every reply names the resolved target (`→ N · <title> — …`).
+
+### Keep-awake
+`remote::keepawake::tests::hold_spawns_caffeinate_release_kills` — hold
+spawns `caffeinate`, release clears the child. Live owned+working cycle not
+re-run this session (owned.json empty; api-tier working does not arm
+keep-awake by design).
+
+### Checks
+- `python3 spike/compare.py` → OK (29 sessions, 0 diffs)
+- `bunx tsc --noEmit` → OK
+- `cargo test --lib` → **27 passed**, 3 ignored
+- `./target/debug/hypervisor` boots; `[remote] listening on 127.0.0.1:7428`
+
+### Blockers / follow-ups
+- Tailscale.app not installed → cannot prove phone-over-`tailscale serve` or
+  lid-closed path on a real MagicDNS host this session; auth + SSE + grammar
+  proven on loopback with `HV_DEV=1`.
+- **M8b task file needed (planner writes it).**
+

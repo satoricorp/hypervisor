@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StableIds {
     next_n: u32,
     by_sid: HashMap<String, u32>,

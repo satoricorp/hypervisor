@@ -274,11 +274,12 @@ AC: with the window closed, a permission request notifies; Approve on the
 notification unblocks the real session; replying denies with guidance; the
 menu bar dot flips red→yellow→green through the whole cycle.
 
-- [ ] **M8a — remote: tailnet mobile slice.** Triage page (needs-you stack +
+- [x] **M8a — remote: tailnet mobile slice.** Triage page (needs-you stack +
   approve/deny + prompt) served from the backend on 127.0.0.1, exposed only
   via `tailscale serve`, authenticated by `Tailscale-User-Login`. Gate: M7g
   (was M7). Adds the echo rule and lid-closed keep-awake. Full spec:
   `design/remote.md`. No remote yolo, ever.
+  Task file: `tasks/M8a.md`. **M8b task file needed (planner writes it).**
 
 - [ ] **M8b — remote: iMessage bridge.** Text your Mac: `status`,
   `3: <prompt>`; approvals over iMessage OFF by default. chat.db read-only

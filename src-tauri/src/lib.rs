@@ -5,6 +5,7 @@ pub mod events;
 pub mod grammar;
 pub mod grammar_cli;
 pub mod registry;
+pub mod remote;
 pub mod stable_ids;
 mod tv;
 
@@ -19,6 +20,7 @@ use events::{
     approve_session, deny_session, get_yolo, kill_session, list_sessions, send_prompt, set_yolo,
     spawn_session, start_watcher, AppState,
 };
+use remote::remote_status;
 use stable_ids::StableIds;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -47,9 +49,11 @@ pub fn run() {
                 yolo: std::sync::Mutex::new(false),
                 yolo_seen: std::sync::Mutex::new(std::collections::HashSet::new()),
                 ids: std::sync::Mutex::new(StableIds::new()),
+                remote_bus: Arc::new(remote::SseBus::new()),
             });
             app.manage(Arc::clone(&state));
-            start_watcher(app.handle().clone(), state);
+            start_watcher(app.handle().clone(), Arc::clone(&state));
+            remote::start(app.handle().clone(), Arc::clone(&state));
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -70,6 +74,7 @@ pub fn run() {
             deny_session,
             set_yolo,
             get_yolo,
+            remote_status,
             tv::toggle_tv,
             tv::tv_interrupt
         ])

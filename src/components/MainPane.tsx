@@ -179,10 +179,68 @@ function Switch({ initialOn = false }: { initialOn?: boolean }) {
   );
 }
 
+function RemoteSettings() {
+  const [status, setStatus] = useState<{
+    serve_cmd: string;
+    tailscale_ok: boolean;
+    login?: string | null;
+    host: string;
+    port: number;
+  } | null>(null);
+
+  useEffect(() => {
+    import("../api")
+      .then(({ remoteStatus }) => remoteStatus())
+      .then(setStatus)
+      .catch(() =>
+        setStatus({
+          serve_cmd: "tailscale serve --bg 127.0.0.1:7428",
+          tailscale_ok: false,
+          host: "127.0.0.1:7428",
+          port: 7428,
+        }),
+      );
+  }, []);
+
+  if (!status) {
+    return (
+      <>
+        <h4>Remote</h4>
+        <p className="footnote">checking tailscale…</p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h4>Remote</h4>
+      <div className="listrow">
+        <span>tailscale</span>
+        <span className="dim">
+          {status.tailscale_ok
+            ? `on · ${status.login ?? status.host}`
+            : "off (tailscale not detected)"}
+        </span>
+      </div>
+      <div className="listrow">
+        <span>serve</span>
+        <span className="dim" style={{ fontFamily: "var(--mono)", fontSize: 11 }}>
+          {status.serve_cmd}
+        </span>
+      </div>
+      <p className="footnote">
+        phone page binds 127.0.0.1:{status.port} only — expose with the
+        command above. auth via Tailscale-User-Login. no funnel, no yolo.
+      </p>
+    </>
+  );
+}
+
 function SettingsPane() {
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
+      <RemoteSettings />
       <h4>Notifications</h4>
       <div className="listrow">
         <span>notify when a session responds</span>

@@ -49,6 +49,20 @@ export async function getYolo(): Promise<boolean> {
   return invoke<boolean>("get_yolo");
 }
 
+export interface RemoteStatus {
+  port: number;
+  bind: string;
+  serve_cmd: string;
+  tailscale_ok: boolean;
+  login?: string | null;
+  host: string;
+  dev_bypass: boolean;
+}
+
+export async function remoteStatus(): Promise<RemoteStatus> {
+  return invoke<RemoteStatus>("remote_status");
+}
+
 /** Wait up to 15s for a newly owned (tmux) sid that wasn't in `before`. */
 export async function waitForOwnedSid(
   before: Set<string>,
