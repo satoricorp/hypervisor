@@ -4,6 +4,7 @@
 //! opencode: poll GET /permission. tmux tier: capture-pane patterns derived
 //! empirically from Claude Code's permission dialog (see Evidence in tasks/M3.md).
 
+use crate::control::owned::OwnedMap;
 use crate::control::{opencode, tmux};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -198,26 +199,28 @@ pub fn deny(
 }
 
 /// Scan owned tmux sessions for permission prompts. Updates `out` in place.
+/// Harness comes from owned.json v2; `harness_by_sid` is fallback for legacy
+/// entries with an empty harness. Done-state sessions are still scanned —
+/// a permission dialog can sit on a pane after the transcript goes idle.
 pub fn detect_tmux(
-    owned: &HashMap<String, String>,
+    owned: &OwnedMap,
     harness_by_sid: &HashMap<String, String>,
-    state_by_sid: &HashMap<String, String>,
     prev: &HashMap<String, PendingApproval>,
     out: &mut HashMap<String, PendingApproval>,
 ) {
-    for (sid, target) in owned {
-        let harness = match harness_by_sid.get(sid) {
-            Some(h) => h.as_str(),
-            None => continue,
+    for (sid, entry) in owned {
+        let harness = if !entry.harness.is_empty() {
+            entry.harness.as_str()
+        } else {
+            match harness_by_sid.get(sid) {
+                Some(h) => h.as_str(),
+                None => continue,
+            }
         };
         if harness != "claude code" && harness != "codex" {
             continue;
         }
-        let state = state_by_sid.get(sid).map(|s| s.as_str()).unwrap_or("done");
-        if state != "working" && state != "stalled" && state != "needs_you" {
-            continue;
-        }
-        let pane = match tmux::capture_pane(target, -25) {
+        let pane = match tmux::capture_pane(&entry.tmux, -25) {
             Ok(p) => p,
             Err(_) => continue,
         };

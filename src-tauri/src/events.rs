@@ -3,6 +3,7 @@
 use crate::adapters::Session;
 use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::{owned, tmux};
+use crate::control::owned::OwnedMap;
 use crate::registry::{scan_sessions, watch_sessions};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -49,14 +50,14 @@ pub struct PendingOwned {
 
 pub struct AppState {
     pub snapshot: Mutex<Vec<SessionWire>>,
-    pub owned: Mutex<HashMap<String, String>>,
+    pub owned: Mutex<OwnedMap>,
     pub owned_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
     pub pending: Mutex<HashMap<String, PendingOwned>>,
     /// sid → pending permission (M3).
     pub approvals: Mutex<HashMap<String, PendingApproval>>,
-    /// Auto-approve every permission request (lives in backend so it works
-    /// with the window closed).
+    // DECISION: yolo stays in-memory only — a forgotten toggle must not
+    // auto-approve anything after a restart.
     pub yolo: Mutex<bool>,
     /// Keys already auto-approved this yolo session (request id / fingerprint)
     /// so we don't re-toast or hammer.
@@ -79,7 +80,7 @@ fn repo_of(cwd: &str) -> String {
         .to_string()
 }
 
-fn control_for(sid: &str, harness: &str, owned: &HashMap<String, String>) -> String {
+fn control_for(sid: &str, harness: &str, owned: &OwnedMap) -> String {
     if owned.contains_key(sid) {
         "tmux".into()
     } else if harness == "cursor" {
@@ -93,7 +94,7 @@ fn control_for(sid: &str, harness: &str, owned: &HashMap<String, String>) -> Str
 
 fn to_wire(
     sessions: &[Session],
-    owned: &HashMap<String, String>,
+    owned: &OwnedMap,
     approvals: &HashMap<String, PendingApproval>,
 ) -> Vec<SessionWire> {
     sessions
@@ -130,7 +131,7 @@ fn to_wire(
 
 fn merge_pending(
     mut wire: Vec<SessionWire>,
-    owned: &HashMap<String, String>,
+    owned: &OwnedMap,
     pending: &HashMap<String, PendingOwned>,
     approvals: &HashMap<String, PendingApproval>,
 ) -> Vec<SessionWire> {
@@ -208,11 +209,9 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
     let prev = state.approvals.lock().unwrap().clone();
 
     let mut harness_by_sid = HashMap::new();
-    let mut state_by_sid = HashMap::new();
     let mut cwd_by_sid = HashMap::new();
     for s in &snap {
         harness_by_sid.insert(s.sid.clone(), s.harness.clone());
-        state_by_sid.insert(s.sid.clone(), s.state.clone());
         if s.harness == "opencode" && !s.cwd.is_empty() {
             cwd_by_sid.insert(s.sid.clone(), s.cwd.clone());
         }
@@ -224,9 +223,6 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
             harness_by_sid
                 .entry(sid.clone())
                 .or_insert_with(|| p.harness.clone());
-            state_by_sid
-                .entry(sid.clone())
-                .or_insert_with(|| "working".into());
             if p.harness == "opencode" && !p.cwd.is_empty() {
                 cwd_by_sid.entry(sid.clone()).or_insert_with(|| p.cwd.clone());
             }
@@ -242,7 +238,7 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
 
     let mut next: HashMap<String, PendingApproval> = HashMap::new();
     approvals::detect_opencode(&cwd_by_sid, &mut next);
-    approvals::detect_tmux(&owned, &harness_by_sid, &state_by_sid, &prev, &mut next);
+    approvals::detect_tmux(&owned, &harness_by_sid, &prev, &mut next);
 
     let yolo = *state.yolo.lock().unwrap();
     let mut auto_toasts: Vec<(String, String)> = Vec::new();
@@ -266,7 +262,7 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
                 // Already auto-approved — wait for detection to drop it.
                 continue;
             }
-            let tmux_target = owned.get(&sid).map(|s| s.as_str());
+            let tmux_target = owned.get(&sid).map(|e| e.tmux.as_str());
             match approvals::approve(&pending, tmux_target) {
                 Ok(()) => {
                     seen.insert(key);
@@ -353,22 +349,26 @@ pub fn spawn_session(
     let spawn_time = now_secs();
     let spawned = tmux::spawn(&harness, &model, &cwd)?;
     let tmux_name = spawned.tmux_name.clone();
+    let harness_label = if harness == "claude" {
+        "claude code".to_string()
+    } else {
+        harness.clone()
+    };
 
     if let Some(sid) = &spawned.sid {
         {
             let mut map = state.owned.lock().unwrap();
-            map.insert(sid.clone(), tmux_name.clone());
+            map.insert(
+                sid.clone(),
+                owned::OwnedEntry::new(tmux_name.clone(), harness_label.clone()),
+            );
             let path = state.owned_path.lock().unwrap().clone();
             owned::save(&path, &map)?;
         }
         state.pending.lock().unwrap().insert(
             sid.clone(),
             PendingOwned {
-                harness: if harness == "claude" {
-                    "claude code".into()
-                } else {
-                    harness.clone()
-                },
+                harness: harness_label.clone(),
                 model: model.clone(),
                 cwd: cwd.clone(),
                 tmux_name: tmux_name.clone(),
@@ -382,6 +382,7 @@ pub fn spawn_session(
     let app2 = app.clone();
     let st = Arc::clone(state.inner());
     let harness2 = harness.clone();
+    let harness_label2 = harness_label.clone();
     let cwd2 = cwd.clone();
     let tmux_name2 = tmux_name.clone();
     let known_sid = spawned.sid.clone();
@@ -402,7 +403,10 @@ pub fn spawn_session(
             Some(sid) => {
                 {
                     let mut map = st.owned.lock().unwrap();
-                    map.insert(sid.clone(), tmux_name2.clone());
+                    map.insert(
+                        sid.clone(),
+                        owned::OwnedEntry::new(tmux_name2.clone(), harness_label2.clone()),
+                    );
                     let path = st.owned_path.lock().unwrap().clone();
                     if let Err(e) = owned::save(&path, &map) {
                         eprintln!("owned.json save failed: {e}");
@@ -431,9 +435,9 @@ pub fn send_prompt(
 ) -> Result<(), String> {
     {
         let map = state.owned.lock().unwrap();
-        if let Some(target) = map.get(&sid).cloned() {
+        if let Some(entry) = map.get(&sid).cloned() {
             drop(map);
-            return tmux::send(&target, &text);
+            return tmux::send(&entry.tmux, &text);
         }
     }
 
@@ -455,14 +459,9 @@ pub fn send_prompt(
     };
 
     if sess.harness == "opencode" {
-        const IDLE_GUARD_S: f64 = 60.0;
-        let idle = now_secs() - sess.mtime;
-        if idle < IDLE_GUARD_S {
-            return Err(format!(
-                "active {idle:.0}s ago — it may still be open in another terminal. close it \
-                 there, or let it go idle, then prompt."
-            ));
-        }
+        // DECISION: no idle guard on the api path — HTTP is opencode's
+        // concurrent-access surface; nothing forks. (Adopt fork guard for
+        // claude/codex --resume is unchanged.)
         return crate::control::opencode::prompt_async(&sid, &sess.cwd, &text);
     }
 
@@ -477,7 +476,7 @@ pub fn kill_session(
     let map = state.owned.lock().unwrap();
     let target = map
         .get(&sid)
-        .cloned()
+        .map(|e| e.tmux.clone())
         .ok_or_else(|| "session is not owned by hypervisor tmux".to_string())?;
     drop(map);
     tmux::kill(&target)
@@ -495,7 +494,12 @@ pub fn approve_session(
             .cloned()
             .ok_or_else(|| "nothing pending approval on this session".to_string())?
     };
-    let tmux_target = state.owned.lock().unwrap().get(&sid).cloned();
+    let tmux_target = state
+        .owned
+        .lock()
+        .unwrap()
+        .get(&sid)
+        .map(|e| e.tmux.clone());
     approvals::approve(&pending, tmux_target.as_deref())?;
     state.approvals.lock().unwrap().remove(&sid);
     emit_current(&app, &state);
@@ -515,7 +519,12 @@ pub fn deny_session(
             .cloned()
             .ok_or_else(|| "nothing pending approval on this session".to_string())?
     };
-    let tmux_target = state.owned.lock().unwrap().get(&sid).cloned();
+    let tmux_target = state
+        .owned
+        .lock()
+        .unwrap()
+        .get(&sid)
+        .map(|e| e.tmux.clone());
     approvals::deny(&pending, &guidance, tmux_target.as_deref())?;
     state.approvals.lock().unwrap().remove(&sid);
     emit_current(&app, &state);

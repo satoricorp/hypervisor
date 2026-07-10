@@ -1,8 +1,9 @@
 # M8a — remote: the tailnet phone page
 
-**Prerequisite gate: M7 must be ticked in PLAN.md** (this milestone reuses
-M7's backend grammar parser and approval/prompt command layer). If M7 is
-unticked, stop and report.
+**Prerequisite gate: M7g must be ticked in PLAN.md** (this milestone reuses
+M7g's backend grammar parser, stable session ids, and approval/prompt
+command layer — replanned 2026-07-10; the full M7 macOS surface now comes
+later). If M7g is unticked, stop and report.
 
 **You are building the phone triage page** per `design/remote.md` (spec,
 §M8a) and `design/mockup-remote.html` (the left phone is the contract —
@@ -27,13 +28,20 @@ open it, press the APPROVE button, tap sessions, type `status`).
    path):
    - `GET /api/sessions` — the snapshot
    - `GET /api/events` — SSE re-broadcast of `sessions:update`
-   - `POST /api/command {text}` — **the M7 grammar**, verbatim: letters
-     approve, `N: prompt`, `status`, `nudge N`
+   - `POST /api/command {text}` — **the M7g grammar** (`grammar.rs`),
+     verbatim: letters approve, `N: prompt`, `status`, `nudge N`
    - `POST /api/approve {letter}` / `POST /api/deny {letter, guidance}` —
      conveniences the buttons call; internally the same handlers
 5. **No yolo over HTTP.** The endpoint does not exist remotely.
 6. Every remote action → desktop toast + (when M5 lands) history line:
    `approved via remote · <login> · <time>`.
+7. **Echo rule (design/remote.md §stable ids):** every command reply names
+   the resolved target — `→ 3 · <title> — sent`. Numbers are the backend's
+   stable ids from M7g, never list positions.
+8. **Keep-awake:** while any owned session is `working`, hold a power
+   assertion (a managed `caffeinate -dims` child is acceptable v1; release
+   after 60s with none working) so approvals reach the phone with the lid
+   closed. `// DECISION:` the mechanism.
 
 ## The page
 
@@ -63,7 +71,10 @@ Port `design/mockup-remote.html`'s left phone faithfully:
 4. Typing `3: run the tests again` on the phone lands in session 3.
 5. Deny path: tap the pending line → guidance flow denies with a message
    (verify in transcript).
-6. compare.py OK · tsc · cargo test · tauri dev boots.
+6. Every reply on the phone echoes the resolved target (`→ 3 · <title>`);
+   with the Mac's display asleep, a pending approval still reaches the
+   phone and APPROVE unblocks it (power assertion proof).
+7. compare.py OK · tsc · cargo test · tauri dev boots.
 
 ## Scope fence
 

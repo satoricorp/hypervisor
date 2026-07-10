@@ -149,6 +149,11 @@ pub fn kill(target: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// True if `target` exists on the hypervisor socket.
+pub fn has_session(target: &str) -> bool {
+    tmux(&["has-session", "-t", target]).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,7 +181,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn opencode_spawn_arm_builds_tmux_session() {
+        if std::env::var("HV_LIVE").ok().as_deref() != Some("1") {
+            eprintln!("skipping live test — set HV_LIVE=1 and run with --ignored");
+            return;
+        }
         let home = env::var("HOME").unwrap();
         let spawned = spawn("opencode", "opencode/big-pickle", &home).expect("opencode spawn");
         assert!(spawned.tmux_name.starts_with("hv-"));

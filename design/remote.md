@@ -10,6 +10,22 @@ from that.
 Mockup: `design/mockup-remote.html` (left phone = M8a web slice, right phone =
 M8b iMessage).
 
+## Stable ids & the echo rule (applies to both channels — added 2026-07-10)
+
+Session numbers must be **stable ids assigned by the backend on first
+sight** (built in M7g), not sidebar positions. Positional numbers reshuffle
+every time any session writes a file; over an async channel the board you
+read may be stale by the time you type `3: yes go ahead` — positional ids
+would make that a roulette against arbitrary command execution.
+
+- A number means the same session for the life of the app process. Sidebar
+  order may change; numbers don't.
+- Approval letters are assigned on detection, stable while pending, never
+  reused in-process, and never collide with numbers.
+- **Echo rule:** every remote reply names the resolved target
+  (`→ 3 · fix flaky test — sent`) so a misroute is visible immediately.
+  Both the phone page and the iMessage bridge follow it.
+
 ## M8a — Tailscale mobile slice (the backbone)
 
 The trusted channel. Full remote control, including approvals.
@@ -79,9 +95,10 @@ Texting your Mac. Delightful, but Apple-fragile and identity-soft — so it is
   gracefully ("imessage bridge: needs Full Disk Access — off").
 - **Outbound:** AppleScript via `osascript`: send to the self-chat. Plain
   text only, compact formatting (the dot board is unicode dots + counts).
-- **Command grammar** (forgiving, case-insensitive):
+- **Command grammar** (forgiving, case-insensitive — the M7g parser):
   - `status` → `● 2 working · ● 3 done · ● 1 needs you` + one line per red
-  - `3: <text>` → prompt to session 3 (numbers match the desktop sidebar)
+  - `3: <text>` → prompt to session 3 (numbers are the stable backend ids —
+    identical on the desktop sidebar and the phone page; see §stable ids)
   - `approve 5` / `deny 5 <guidance>` → **only if** approvals-over-imessage is
     explicitly enabled in Settings (default OFF; the reply otherwise says
     "approvals are disabled over imessage — use the tailnet page")

@@ -90,7 +90,10 @@ pub fn adopt_session(
 
     {
         let mut map = state.owned.lock().unwrap();
-        map.insert(sid.clone(), hv_name.clone());
+        map.insert(
+            sid.clone(),
+            owned::OwnedEntry::new(hv_name.clone(), sess.harness.clone()),
+        );
         let path = state.owned_path.lock().unwrap().clone();
         owned::save(&path, &map)?;
     }
@@ -118,7 +121,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn fork_guard_and_adopt_idle_sessions() {
+        if std::env::var("HV_LIVE").ok().as_deref() != Some("1") {
+            eprintln!("skipping live test — set HV_LIVE=1 and run with --ignored");
+            return;
+        }
         let sessions = scan_sessions(MAX_AGE_HOURS, ADOPT_SCAN_LIMIT, None);
         let now = now_secs();
 

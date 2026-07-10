@@ -18,9 +18,16 @@ file directly:
 - A milestone is complete when its checkbox below is ticked and its evidence
   is recorded in the task file. One milestone per agent session.
 - **Queued task files** (each opens with a prerequisite gate — a builder
-  must verify the gate before building): `tasks/TV.md` (gate: M3),
-  `tasks/M7.md` (gate: M3), `tasks/M8a.md` (gate: M7). After M3 lands, TV
-  and M7 can proceed in parallel with M4/M5/M6 — they touch different areas.
+  must verify the gate before building). Replanned 2026-07-10 after an
+  architecture review; the queue is now:
+  `tasks/H1.md` → `tasks/M3x.md` (gate: claude login refreshed) →
+  `tasks/H2.md` → `tasks/H3.md` → `tasks/M7g.md` (gate: H1) →
+  `tasks/M8a.md` (gate: M7g). Also queued: `tasks/TV.md` (gate: M3),
+  `tasks/M7.md` (gate: M7g — re-scoped, grammar extracted),
+  `tasks/ARCHIVE.md` (gate: H3 — session archiving; prioritize right after
+  H3, the board is drowning in test sessions). M4/M5/M6 can
+  interleave after H2 — they touch different areas. Each task's "When
+  done" names the next file to copy into CURRENT.md.
 
 ## References (read in this order)
 
@@ -133,6 +140,7 @@ tmux session is working — without it, soften the chip copy.
 | `⌘K` | palette: session/history/usage/access/settings + commands |
 | `⌘N` | New Agent (harness → model picker) |
 | `⌘T` | toggle the tv (PiP pauses on hide, resumes on show) |
+| `⌘⌫` | archive the selected session (refused while working — tasks/ARCHIVE.md) |
 | `esc` | back out: menu step → menu → blur → session view |
 
 Prompt focused: `⏎` sends to the target chip (`● 3` / `● 1·2`). Typing at a
@@ -143,7 +151,8 @@ pending approval = deny with guidance (message goes to session, request cleared)
 Wired in v1: `/new` (harness→model, auto-worktree if repo busy, history context
 attach), `/subagents` (target→model, spawns handoff), `/plan` (run, then park in
 needs_you with "approve to execute?"), `/review` (spawn reviewer subagent on the
-diff), `/loop` (re-run interval, `↻` chip), `/worktree`, `/broadcast`.
+diff), `/loop` (re-run interval, `↻` chip), `/worktree`, `/broadcast`,
+`/archive` + `/archive idle` (local tombstones — tasks/ARCHIVE.md).
 Stubs OK in v1: `/handoff`, `/compact`, `/kill` (kill = tmux kill-session where owned).
 
 Yolo mode: statusbar toggle, auto-approves every permission request, amber when on.
@@ -201,7 +210,35 @@ spike is their test oracle; UI second, binding them together in M2).
 `PreToolUse`/permission events or transcript markers; codex: approval prompts in
 rollout). Tab approves, typing denies-with-guidance, yolo toggle.
 AC: a real `claude` session asking to run a command is approved from Hypervisor
-with Tab and proceeds.
+with Tab and proceeds. *Open AC (claude-live proof, OAuth was expired) closes
+in M3x.*
+
+- [x] **H1 — hardening: safe tests + small fixes.** `cargo test --lib` becomes
+  side-effect-free (live tests gated behind `HV_LIVE=1 -- --ignored`);
+  opencode api-tier prompt guard removed; owned.json v2 (harness recorded,
+  dead entries pruned, done-state approvals detected); codex midnight
+  correlation; README + single lockfile. Task file: `tasks/H1.md`.
+
+- [ ] **M3x — approvals proven live.** Run M3 DoD #1/#2 against a real claude
+  dialog once `claude /login` is refreshed; re-derive the pane parser from
+  reality; fix the deny 400ms race if observed. Task file: `tasks/M3x.md`.
+
+- [ ] **H2 — hot-loop rework.** The 2s tick stops full-rescanning all four
+  adapters; cached sessions re-finalize (state/age) on tick, adapters rescan
+  only on fs events; single emitter (kills the snapshot race); sqlite
+  torn-reads degrade to last-good instead of zero rows. Task file:
+  `tasks/H2.md`.
+
+- [ ] **H3 — failure surfacing + webview safety.** Real CSP (currently null),
+  structured toasts (no HTML over the wire), spawn dead-pane detection,
+  adapter health line in the statusbar, sidebar overflow count, subagent
+  rows populated or honestly hidden. Task file: `tasks/H3.md`.
+
+- [ ] **M7g — the grammar core.** Extracted from M7 so remote doesn't wait on
+  tray/notification plumbing: the shared backend grammar
+  (`status` / letters / `N:` / `nudge N`), stable session numbers + approval
+  letters (see design/remote.md §stable ids), window close hides instead of
+  quitting, `hvscan cmd` proof harness. Task file: `tasks/M7g.md`.
 
 - [ ] **M4 — worktrees.** `/worktree`, auto-worktree default when `/new` targets a
 repo with an active session, repo·branch·worktree line in the header, settings
@@ -230,17 +267,18 @@ AC: ticker `$x.xx · x.xM TOK` bottom-left matches a hand-check of one day.
 - [ ] **M7 — the macOS surface.** Menu bar dot (+red count) with a dropdown
 (the triage page docked in the corner), actionable notifications
 (Approve button + inline Reply = deny-with-guidance), ⌥Space command bar,
-dock badge, launch-at-login, power assertion while sessions work. The
-letter/N:/status **grammar is parsed once in the backend** and shared by
-every surface (dropdown, HUD, later M8a/M8b). Spec: `design/macos-surface.md`;
-mockup: `design/mockup-menubar.html`.
+dock badge, launch-at-login, power assertion polish. *Re-scoped 2026-07-10:
+the grammar parser, stable ids, and window-close survival moved to M7g
+(gate: M7g); this milestone consumes `grammar.rs`, never reimplements it.*
+Spec: `design/macos-surface.md`; mockup: `design/mockup-menubar.html`.
 AC: with the window closed, a permission request notifies; Approve on the
 notification unblocks the real session; replying denies with guidance; the
 menu bar dot flips red→yellow→green through the whole cycle.
 
 - [ ] **M8a — remote: tailnet mobile slice.** Triage page (needs-you stack +
   approve/deny + prompt) served from the backend on 127.0.0.1, exposed only
-  via `tailscale serve`, authenticated by `Tailscale-User-Login`. Full spec:
+  via `tailscale serve`, authenticated by `Tailscale-User-Login`. Gate: M7g
+  (was M7). Adds the echo rule and lid-closed keep-awake. Full spec:
   `design/remote.md`. No remote yolo, ever.
 
 - [ ] **M8b — remote: iMessage bridge.** Text your Mac: `status`,

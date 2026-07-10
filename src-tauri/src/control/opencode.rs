@@ -285,7 +285,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn live_opencode_idle_guard_prompt_and_new() {
+        if std::env::var("HV_LIVE").ok().as_deref() != Some("1") {
+            eprintln!("skipping live test — set HV_LIVE=1 and run with --ignored");
+            return;
+        }
         let sessions = scan_sessions(48.0, 32, Some(Harness::Opencode));
         let Some(sess) = sessions.into_iter().next() else {
             eprintln!("OPENCODE_LIVE: no session in 48h window — skip");
