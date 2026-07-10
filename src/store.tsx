@@ -11,7 +11,7 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { MODELS, PAL, ROOT_CMDS, TARGETS } from "./menuData";
 import { ensureLog } from "./constants";
-import { listSessions, sendPrompt, spawnSession, waitForOwnedSid } from "./api";
+import { adoptSession, listSessions, sendPrompt, spawnSession, waitForOwnedSid } from "./api";
 import { wireToSession, type SessionWire } from "./wire";
 import type {
   AppState,
@@ -552,7 +552,19 @@ export async function doSend(
   if (!s) return;
 
   if (state.subSel < 0 && s.ctl === "observe") {
-    dispatch({ type: "TOAST", html: "adoption lands in M2b" });
+    if (!s.sid) {
+      dispatch({ type: "TOAST", html: "session has no sid yet" });
+      return;
+    }
+    try {
+      const hv = await adoptSession(s.sid);
+      dispatch({
+        type: "TOAST",
+        html: `adopted as ${esc(hv)} — session now runs in the background`,
+      });
+    } catch (e) {
+      dispatch({ type: "TOAST", html: esc(String(e)) });
+    }
     return;
   }
 

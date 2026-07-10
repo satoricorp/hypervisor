@@ -21,6 +21,10 @@ export async function sendPrompt(sid: string, text: string): Promise<void> {
   return invoke("send_prompt", { sid, text });
 }
 
+export async function adoptSession(sid: string): Promise<string> {
+  return invoke<string>("adopt_session", { sid });
+}
+
 /** Wait up to 15s for a newly owned (tmux) sid that wasn't in `before`. */
 export async function waitForOwnedSid(
   before: Set<string>,

@@ -140,7 +140,7 @@ fn merge_pending(
     wire
 }
 
-fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
+pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
     let owned = state.owned.lock().unwrap().clone();
     let mut pending = state.pending.lock().unwrap();
     // Drop pending entries once adapters have the real row.

@@ -179,10 +179,18 @@ spike is their test oracle; UI second, binding them together in M2).
   works, green within 2s of done); + New Agent creates an `hv-*` tmux session
   that appears in the sidebar; a prompt sent from the bar lands in it.
 
-- [ ] **M2b — adoption + opencode.** Adopt observe-only claude/codex sessions
-  (respawn under our tmux via `--resume`, with the live-writer fork guard from
-  §Risks); opencode over `opencode serve` HTTP (`api` control tier).
-  AC: adopt a bare terminal session and then successfully prompt it.
+- [x] **M2b — adoption.** Adopt observe-only claude/codex sessions: respawn
+  under our tmux via `claude --resume <sid>` / `codex resume <uuid>`, with the
+  live-writer fork guard (refuse if idle <60s). Task file: `tasks/M2b.md`.
+  AC: adopt a bare terminal session and then successfully prompt it; adopting
+  an active session is refused with an explanatory toast.
+
+- [ ] **M2c — opencode tier.** opencode adapter (storage at
+  `~/.local/share/opencode/` — sqlite `opencode.db` + session/message dirs;
+  schema needs exploration before the task file is written), `/new` spawn via
+  tmux, and the `api` control tier over `opencode serve` HTTP (confirm
+  endpoints via its `/doc` OpenAPI). AC: opencode sessions appear in the
+  sidebar and accept prompts.
 
 - [ ] **M3 — approvals.** Detect pending permission requests (claude code: hook
 `PreToolUse`/permission events or transcript markers; codex: approval prompts in

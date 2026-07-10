@@ -2,10 +2,12 @@
 //! Never touch the user's default tmux server.
 
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SOCKET: &str = "hypervisor";
+static ID_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn tmux(args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new("tmux");
@@ -29,9 +31,11 @@ fn short_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
+    let seq = ID_SEQ.fetch_add(1, Ordering::Relaxed);
     let mixed = t
-        ^ (std::process::id() as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-    format!("{mixed:08x}")[..8].to_string()
+        ^ seq.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ (std::process::id() as u64).wrapping_mul(0x85eb_ca6b);
+    format!("{:08x}", mixed as u32)
 }
 
 /// Generate a UUID-shaped id without an extra crate.
@@ -59,10 +63,26 @@ pub struct Spawned {
     pub sid: Option<String>,
 }
 
+/// Detached tmux session running `shell_cmd` via `/bin/zsh -lic`.
+pub fn new_detached(name: &str, cwd: &str, shell_cmd: &str) -> Result<(), String> {
+    // DECISION: `/bin/zsh -lic` so nvm/.zshrc PATH resolves claude/codex.
+    tmux(&[
+        "new-session",
+        "-d",
+        "-s",
+        name,
+        "-c",
+        cwd,
+        "/bin/zsh",
+        "-lic",
+        shell_cmd,
+    ])?;
+    Ok(())
+}
+
 /// Spawn a detached agent session.
 pub fn spawn(harness: &str, model: &str, cwd: &str) -> Result<Spawned, String> {
     let name = format!("hv-{}", short_id());
-    // DECISION: `/bin/zsh -lic` so nvm/.zshrc PATH resolves claude/codex.
     // DECISION: claude gets `--session-id` so owned.json can map before the
     // first prompt (jsonl only appears after the first user message).
     let (shell_cmd, sid) = match harness {
@@ -83,21 +103,16 @@ pub fn spawn(harness: &str, model: &str, cwd: &str) -> Result<Spawned, String> {
         }
         other => return Err(format!("unknown harness: {other}")),
     };
-    tmux(&[
-        "new-session",
-        "-d",
-        "-s",
-        &name,
-        "-c",
-        cwd,
-        "/bin/zsh",
-        "-lic",
-        &shell_cmd,
-    ])?;
+    new_detached(&name, cwd, &shell_cmd)?;
     Ok(Spawned {
         tmux_name: name,
         sid,
     })
+}
+
+/// Fresh `hv-<id8>` name for an adopted session.
+pub fn next_hv_name() -> String {
+    format!("hv-{}", short_id())
 }
 
 /// Send literal text then Enter (150ms apart so TUIs can compose first).
