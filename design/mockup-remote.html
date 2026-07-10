@@ -67,65 +67,39 @@
   @keyframes pulse { 50% { opacity: .3; } }
   .hv-sum span { display: inline-flex; align-items: center; gap: 5px; }
 
-  .hv-body { flex: 1; overflow-y: auto; padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 8px; }
-  .hv-lbl { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 4px 2px 0; }
+  /* the feed — a text interface, not a dashboard */
+  .hv-body { flex: 1; overflow-y: auto; padding: 12px 14px 8px; display: flex; flex-direction: column; gap: 7px; }
+  .ln { display: flex; gap: 8px; font-size: 11px; line-height: 1.55; }
+  .ln .ts { flex: none; color: var(--ink-3); font-size: 9px; padding-top: 2px; width: 32px; }
+  .ln .tx { min-width: 0; color: var(--ink-2); word-break: break-word; flex: 1; }
+  .ln .tx.me { color: var(--ink); }
+  .ln .tx.me::before { content: "❯ "; color: var(--sel); }
+  .ln .tx.dim { color: var(--ink-3); }
+  .ln .tx .d { font-size: 13px; line-height: 1; vertical-align: -1px; }
+  .d.ok { color: var(--ok); } .d.busy { color: var(--busy); } .d.err { color: var(--err); }
+  .tx .red { color: var(--err); }
+  .tx .grn { color: var(--ok); }
+  .acts { display: flex; gap: 7px; margin-top: 5px; }
+  .tbtn {
+    font: inherit; font-size: 10px; cursor: pointer;
+    color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--border-2); border-radius: var(--r-chip);
+    padding: 3px 11px;
+  }
+  .tbtn.pri { background: var(--sel); color: var(--bg); border-color: var(--sel); font-weight: 700; }
+  .tbtn:active { transform: translateY(1px); }
 
-  .needcard {
-    background: var(--surface); border: 1px solid rgba(229,84,75,.4);
-    border-left: 3px solid var(--err); border-radius: var(--r-chip);
-    padding: 10px 11px; display: flex; flex-direction: column; gap: 7px;
+  .sugg { display: flex; gap: 7px; padding: 8px 10px 0; flex-wrap: wrap; }
+  .sug {
+    font: inherit; font-size: 10px; color: var(--ink-3); cursor: pointer;
+    background: none; border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 3px 9px;
   }
-  .needcard.resolved { border-color: var(--border); border-left-color: var(--busy); }
-  .needcard.done { border-left-color: var(--ok); }
-  .nc-title { font-size: 11.5px; font-weight: 600; display: flex; gap: 7px; align-items: center; }
-  .nc-title .num { color: var(--ink-3); font-weight: 400; }
-  .nc-cmd {
-    font-size: 10.5px; color: var(--err); background: var(--inset);
-    border: 1px solid var(--border); border-radius: var(--r-chip);
-    padding: 6px 8px; word-break: break-all;
-  }
-  .nc-cmd.q { color: #5ea8ff; }
-  .nc-state { font-size: 10px; color: var(--ink-3); }
-  .nc-btns { display: flex; gap: 8px; }
-  .btn {
-    flex: 1; font: inherit; font-size: 11px; font-weight: 700;
-    padding: 8px 0; border-radius: var(--r-chip); cursor: pointer;
-    border: 1px solid var(--border-2); background: var(--surface-2); color: var(--ink);
-  }
-  .btn.primary { background: var(--sel); border-color: var(--sel); color: var(--bg); }
-  .btn:active { transform: translateY(1px); }
-
-  .sess {
-    border-radius: var(--r-chip); cursor: pointer;
-    border-left: 3px solid transparent;
-    background: var(--surface);
-    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
-    border-right: 1px solid var(--border);
-  }
-  .sess.sel { border-left-color: var(--sel); background: var(--surface-2); }
-  .sess-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; }
-  .sess .num { font-size: 10px; color: var(--ink-3); width: 12px; text-align: right; }
-  .sess.sel .num { color: var(--sel); font-weight: 700; }
-  .sess .t { flex: 1; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sess .m { font-size: 9px; color: var(--ink-3); }
-  .sess-detail {
-    border-top: 1px solid var(--border);
-    padding: 7px 10px 9px 31px;
-    display: flex; flex-direction: column; gap: 4px;
-  }
-  .sd-sent { font-size: 10px; color: var(--ink-3); line-height: 1.5; }
-  .sd-sent::before { content: "❯ "; color: var(--ink-3); }
-  .sd-live { font-size: 10.5px; color: var(--ink-2); line-height: 1.5; }
-  .sd-live.ok { color: var(--ok); }
+  .sug:hover { color: var(--ink-2); border-color: var(--border-2); }
 
   .hv-prompt {
     border-top: 1px solid var(--border); background: var(--inset);
-    padding: 9px 10px 26px; display: flex; gap: 8px; align-items: center;
-  }
-  .hv-target {
-    flex: none; display: flex; align-items: center; gap: 6px;
-    font-size: 10.5px; border: 1px solid var(--border-2); border-radius: var(--r-chip);
-    background: var(--surface); padding: 5px 9px;
+    padding: 9px 12px 26px; display: flex; gap: 8px; align-items: center;
   }
   .hv-prompt input {
     flex: 1; font: inherit; font-size: 12px; color: var(--ink);
@@ -227,39 +201,21 @@
             </div>
           </div>
 
-          <div class="hv-body" id="hvbody">
-            <div class="hv-lbl">needs you</div>
-
-            <div class="needcard" id="card5">
-              <div class="nc-title"><i class="dot d-err"></i><span class="num">5</span> integration tests for billing webhooks</div>
-              <div class="nc-cmd">⏸ wants to run — Bash(stripe fixtures pull --api-version 2026-03 --write test/fixtures/)</div>
-              <div class="nc-btns">
-                <button class="btn primary" id="approve5">Approve</button>
-                <button class="btn" id="deny5">Deny + guide</button>
-              </div>
-            </div>
-
-            <div class="needcard" id="card6">
-              <div class="nc-title"><i class="dot d-err"></i><span class="num">6</span> chase down memory leak in worker pool</div>
-              <div class="nc-cmd q">✗ stalled 14m — no output since the bisect started</div>
-              <div class="nc-btns">
-                <button class="btn" id="nudge6">Nudge</button>
-              </div>
-            </div>
-
-            <div class="hv-lbl">all sessions — tap to select &amp; expand</div>
-            <div id="sesslist"></div>
-          </div>
+          <div class="hv-body" id="hvbody"></div>
 
           <div class="hv-toast" id="hvtoast"></div>
+          <div class="sugg" id="sugg">
+            <button class="sug">status</button>
+            <button class="sug">approve 5</button>
+            <button class="sug">3: tighten the summary, cut 30%</button>
+          </div>
           <div class="hv-prompt">
-            <span class="hv-target" id="hvtarget"><i class="dot d-busy"></i>1</span>
-            <input id="hvinput" placeholder="prompt selected session" />
+            <input id="hvinput" placeholder="status · 3: prompt · approve 5" autocomplete="off" spellcheck="false" />
             <button class="hv-send" id="hvsend" aria-label="send">⏎</button>
           </div>
         </div>
       </div>
-      <p class="caption"><b>M8a — tailnet slice.</b> served from the mac on 127.0.0.1, exposed only via <b>tailscale serve</b>, authenticated by device identity. approvals allowed here — it's the strong channel. no yolo toggle exists remotely. <b>tap a session</b> to target it and expand its last-sent + live line.</p>
+      <p class="caption"><b>M8a — tailnet slice.</b> a text interface, not a shrunken dashboard: one feed, one input, <b>one grammar shared with iMessage</b> — <b>status</b> · <b>3: prompt</b> · <b>approve 5</b>. inline buttons are just accelerators for the same commands. served on 127.0.0.1, exposed only via tailscale serve, device-identity auth; approvals allowed here, no yolo remotely. try typing <b>status</b>.</p>
     </div>
 
     <!-- ————— iMessage bridge ————— -->
@@ -317,95 +273,71 @@ reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
   'use strict';
   const $ = s => document.querySelector(s);
 
-  // ————— left phone: triage slice —————
-  const SESSIONS = [
-    { n: '1', dot: 'd-busy', t: 'refactor auth middleware to session tokens', m: 'fable-5',
-      sent: 'use the existing redis client, don’t add ioredis',
-      live: '⚒ Edit(src/auth/middleware.ts) — logout clears the cookie but not the redis entry, fixing that too' },
-    { n: '2', dot: 'd-ok', t: 'fix flaky retry test in ci', m: 'gpt-5-codex',
-      sent: 'failure is only on ubuntu-latest, so it’s timing',
-      live: '✓ widened retry window to 250ms + jitter · 3 consecutive green runs' },
-    { n: '3', dot: 'd-ok', t: 'q3 roadmap narrative draft', m: 'fable-5',
-      sent: 'tighten the security section, cut it by a third',
-      live: '✓ redraft ready — security section down from 900 to 580 words' },
-    { n: '4', dot: 'd-busy', t: 'migrate dashboard to tailwind v4', m: 'sonnet-5',
-      sent: 'keep the class sorting plugin, drop the rest of postcss',
-      live: '⚒ Grep("@apply") — 41 matches in 17 files, inlining the css-module ones' },
-    { n: '7', dot: 'd-ok', t: 'audit npm scripts for postinstall hooks', m: 'gpt-5',
-      sent: 'flag anything that runs code on install',
-      live: '✓ 2 packages flagged — esbuild pinned, husky postinstall removed' },
-  ];
-  let target = '1', targetDot = 'd-busy';
-  const toastT = { t: null };
-  function toast(msg) {
-    const el = $('#hvtoast');
-    el.textContent = msg;
-    el.classList.add('show');
-    clearTimeout(toastT.t);
-    toastT.t = setTimeout(() => el.classList.remove('show'), 3200);
+  // ————— left phone: text-interface feed —————
+  // one grammar, shared with the iMessage bridge: status · N: prompt · approve N
+  const feed = $('#hvbody'), input = $('#hvinput');
+  let pending5 = true;
+  const now = () => {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  };
+  function line(ts, html, cls) {
+    const el = document.createElement('div');
+    el.className = 'ln';
+    el.innerHTML = `<span class="ts">${ts}</span><span class="tx ${cls || ''}">${html}</span>`;
+    feed.appendChild(el);
+    feed.scrollTop = feed.scrollHeight;
+    return el;
   }
-  function renderSess() {
-    $('#sesslist').innerHTML = SESSIONS.map(s => `
-      <div class="sess ${target === s.n ? 'sel' : ''}" data-n="${s.n}">
-        <div class="sess-row">
-          <span class="num">${s.n}</span><i class="dot ${s.dot}"></i>
-          <span class="t">${s.t}</span><span class="m">${s.m}</span>
-        </div>
-        ${target === s.n ? `<div class="sess-detail">
-          <div class="sd-sent">${s.sent}</div>
-          <div class="sd-live ${s.dot === 'd-ok' ? 'ok' : ''}">${s.live}</div>
-        </div>` : ''}
-      </div>`).join('');
-    document.querySelectorAll('.sess').forEach(el =>
-      el.addEventListener('click', () => {
-        const s = SESSIONS.find(x => x.n === el.dataset.n);
-        setTarget(s.n, s.dot);
-      }));
-  }
-  function setTarget(n, dotCls) {
-    target = n; targetDot = dotCls;
-    $('#hvtarget').innerHTML = `<i class="dot ${dotCls}"></i>${n}`;
-    renderSess();
-  }
-  renderSess();
+  const BOARD = () =>
+    `<span class="d busy">●</span> ${pending5 ? 2 : 3} working · <span class="d ok">●</span> 4 done · <span class="d err">●</span> ${pending5 ? 2 : 1} need you`;
 
-  $('#approve5').addEventListener('click', () => {
-    const c = $('#card5');
-    c.classList.add('resolved');
-    c.innerHTML = `<div class="nc-title"><i class="dot d-busy"></i><span class="num">5</span> integration tests for billing webhooks</div>
-      <div class="nc-state">✓ approved from your phone — running · desktop shows “approved via remote · joe@…”</div>`;
-    toast('⇥ approved — Bash(stripe fixtures pull …)');
-    setTimeout(() => {
-      c.classList.add('done');
-      c.querySelector('.dot').className = 'dot d-ok';
-      c.querySelector('.nc-state').textContent = '✓ done — fixtures written, tests green';
-      $('#redcount').innerHTML = '<i class="dot d-err"></i>1 needs you';
-    }, 4200);
-  });
-  $('#deny5').addEventListener('click', () => {
-    setTarget('5', 'd-err');
-    $('#hvinput').placeholder = 'deny with guidance — message goes to 5';
-    $('#hvinput').focus();
-    toast('type guidance — sending denies the request');
-  });
-  $('#nudge6').addEventListener('click', () => {
-    const c = $('#card6');
-    c.classList.add('resolved');
-    c.querySelector('.nc-cmd').outerHTML = '<div class="nc-state">↻ nudged — session resumed output 3s later</div>';
-    c.querySelector('.nc-btns').remove();
-    c.querySelector('.dot').className = 'dot d-busy';
-    toast('nudge sent to 6');
-  });
-  function hvSend() {
-    const v = $('#hvinput').value.trim();
-    if (!v) return;
-    $('#hvinput').value = '';
-    $('#hvinput').placeholder = 'prompt selected session';
-    toast(`sent to ${target} — session working`);
-    setTarget(target, 'd-busy');
+  // opening feed
+  line('13:58', '<span class="d busy">●</span> 1 working — refactor auth middleware <span class="dim" style="color:var(--ink-3)">(fable-5 · gx)</span>');
+  line('14:02', '<span class="d ok">●</span> 2 done — retry window widened + jitter, 3 green runs');
+  const l5 = line('14:07', `<span class="d err">●</span> <span class="red">5 wants:</span> Bash(stripe fixtures pull --api-version 2026-03 --write test/fixtures/)
+    <span class="acts"><button class="tbtn pri" id="ap5">approve</button><button class="tbtn" id="dn5">deny + guide</button></span>`);
+  line('14:11', '<span class="d err">●</span> <span class="red">6 stalled 14m</span> — memory-leak bisect went quiet <span class="acts"><button class="tbtn" id="ng6">nudge</button></span>');
+
+  function echo(t) { line(now(), t.replace(/</g, '&lt;'), 'me'); }
+  function approve5() {
+    if (!pending5) { line(now(), 'nothing pending approval on 5', 'dim'); return; }
+    pending5 = false;
+    l5.querySelector('.acts')?.remove();
+    line(now(), '<span class="grn">✓ 5 approved — running</span> · desktop logs “approved via remote · joe@…”');
+    setTimeout(() => line(now(), '<span class="d ok">●</span> 5 done — fixtures written, tests green'), 4200);
   }
-  $('#hvsend').addEventListener('click', hvSend);
-  $('#hvinput').addEventListener('keydown', e => { if (e.key === 'Enter') hvSend(); });
+  $('#ap5').addEventListener('click', () => { echo('approve 5'); approve5(); });
+  $('#dn5').addEventListener('click', () => { input.value = '5: '; input.focus(); });
+  $('#ng6').addEventListener('click', () => {
+    echo('nudge 6');
+    line(now(), '↻ nudged — 6 resumed output 3s later', 'dim');
+  });
+
+  function submit() {
+    const v = input.value.trim();
+    if (!v) return;
+    input.value = '';
+    echo(v);
+    let m;
+    if (/^status$/i.test(v)) {
+      line(now(), BOARD());
+      if (pending5) line(now(), '<span class="red">5 wants:</span> Bash(stripe fixtures pull …) — reply “approve 5”');
+    } else if ((m = v.match(/^approve\s+(\d+)/i))) {
+      m[1] === '5' ? approve5() : line(now(), `nothing pending approval on ${m[1]}`, 'dim');
+    } else if ((m = v.match(/^(\d+):\s*(.+)/))) {
+      const deny = m[1] === '5' && pending5;
+      if (deny) { pending5 = false; l5.querySelector('.acts')?.remove(); }
+      line(now(), `${deny ? 'denied the request — guidance ' : ''}→ sent to ${m[1]} — working`, 'dim');
+      setTimeout(() => line(now(), `<span class="d ok">●</span> ${m[1]} done — response ready`), 4600);
+    } else {
+      line(now(), 'prefix a session — “3: &lt;prompt&gt;” · or “status”, “approve 5”', 'dim');
+    }
+  }
+  $('#hvsend').addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  document.querySelectorAll('.sug').forEach(b =>
+    b.addEventListener('click', () => { input.value = b.textContent; submit(); }));
 
   // ————— right phone: scripted iMessage —————
   const SCRIPT = {
