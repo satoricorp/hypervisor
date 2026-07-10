@@ -1,0 +1,453 @@
+<meta charset="utf-8">
+<title>Hypervisor — macOS Surface</title>
+<style>
+  /* M7 — the app when its window is closed: menu bar, notifications, ⌥Space.
+     One grammar everywhere: letters approve, N: prompts, status. All three
+     surfaces below share live state — approve in one, watch the others. */
+  :root {
+    --desk: #050607; --bg: #0a0c0e; --surface: #10141a; --surface-2: #151a21;
+    --inset: #0c0f13; --border: #1f242b; --border-2: #2e3540;
+    --ink: #dee3e8; --ink-2: #8a93a0; --ink-3: #545e6b; --sel: #e9edf2;
+    --ok: #46d68c; --busy: #e2a33e; --err: #e5544b; --mint: #57e0c9;
+    --mono: "Berkeley Mono", "TX-02", ui-monospace, "SF Mono", Menlo, monospace;
+    --ios: -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --r-chip: 2px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--desk); }
+  body {
+    margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink);
+    background: radial-gradient(1100px 500px at 50% -10%, #0b0e12, var(--desk) 60%);
+    min-height: 100vh; padding: 40px 16px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { max-width: 980px; margin: 0 auto; }
+  h1 {
+    font-size: 15px; font-weight: 700; letter-spacing: .14em; margin: 0 0 6px;
+    color: var(--sel); text-align: center; font-family: "Xer0", var(--mono);
+  }
+  .sub { text-align: center; color: var(--ink-3); font-size: 11px; margin: 0 0 30px; }
+
+  /* ————— the desktop ————— */
+  .desktop {
+    position: relative; height: 620px; border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--border-2);
+    background:
+      radial-gradient(700px 420px at 70% 80%, #14202b 0%, transparent 65%),
+      radial-gradient(600px 380px at 20% 30%, #1a1420 0%, transparent 60%),
+      linear-gradient(#0b0d12, #07080b);
+    box-shadow: 0 0 0 1px #000, 0 24px 70px rgba(0,0,0,.55);
+  }
+
+  /* menu bar */
+  .menubar {
+    position: absolute; top: 0; left: 0; right: 0; height: 30px;
+    background: rgba(16,18,22,.86); backdrop-filter: blur(6px);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 14px; font-family: var(--ios); font-size: 12px; color: #d9dbe0;
+  }
+  .menubar .apple { font-size: 13px; }
+  .menubar .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .mb-glyph { opacity: .75; font-size: 11px; }
+  .hvitem {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 8px; border-radius: 5px; cursor: pointer; user-select: none;
+  }
+  .hvitem:hover, .hvitem.open { background: rgba(255,255,255,.12); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+  .d-ok { background: var(--ok); } .d-busy { background: var(--busy); animation: pulse 1.5s infinite; }
+  .d-err { background: var(--err); animation: pulse 2.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .hvitem .cnt { color: #ff6b64; font-weight: 700; }
+
+  /* dropdown */
+  .dropdown {
+    position: absolute; top: 34px; right: 118px; width: 330px; z-index: 8;
+    background: var(--bg); border: 1px solid var(--border-2); border-radius: 8px;
+    box-shadow: 0 0 0 1px #000, 0 20px 60px rgba(0,0,0,.6);
+    overflow: hidden; display: none;
+  }
+  .dropdown.open { display: block; }
+  .dd-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    background: var(--inset); font-size: 10px; color: var(--ink-2);
+  }
+  .dd-head span { display: inline-flex; align-items: center; gap: 5px; }
+  .dd-head .yolo { margin-left: auto; color: var(--ink-3); }
+  .alet {
+    display: inline-grid; place-items: center;
+    width: 16px; height: 16px; border-radius: 4px;
+    background: var(--err); color: #fff; font-size: 10px; font-weight: 700; flex: none;
+  }
+  .dd-appr {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    font-size: 10.5px;
+  }
+  .dd-appr .cmd { flex: 1; min-width: 0; color: var(--err); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dd-appr button {
+    font: inherit; font-size: 10px; font-weight: 700; cursor: pointer;
+    background: var(--sel); color: var(--bg); border: 0; border-radius: 5px;
+    padding: 4px 12px; flex: none;
+  }
+  .dd-appr button:active { transform: scale(.95); }
+  .dd-sess { padding: 4px 0; }
+  .dd-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; font-size: 11px; cursor: pointer;
+  }
+  .dd-row:hover { background: var(--surface); }
+  .dd-row .num { color: var(--ink-3); width: 10px; text-align: right; font-size: 10px; }
+  .dd-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dd-row .age { color: var(--ink-3); font-size: 9.5px; }
+  .dd-foot {
+    border-top: 1px solid var(--border); background: var(--inset);
+    padding: 8px 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .dd-foot input {
+    flex: 1; font: inherit; font-size: 11px; color: var(--ink);
+    background: none; border: 0; outline: none; caret-color: var(--sel);
+  }
+  .dd-foot input::placeholder { color: var(--ink-3); }
+  .dd-foot .hint { font-size: 9px; color: var(--ink-3); flex: none; }
+
+  /* notification */
+  .notif {
+    position: absolute; top: 40px; right: 12px; width: 344px; z-index: 9;
+    background: rgba(28,30,34,.92); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    font-family: var(--ios); color: #f2f3f5;
+    padding: 11px 12px;
+    transform: translateX(380px); transition: transform .3s cubic-bezier(.3,1.2,.4,1);
+  }
+  .notif.show { transform: none; }
+  .n-top { display: flex; align-items: center; gap: 8px; }
+  .n-icon {
+    width: 30px; height: 30px; border-radius: 7px; flex: none;
+    background: #0a0c0e; border: 1px solid #2e3540;
+    display: grid; place-items: center;
+    font-family: "Xer0", var(--mono); font-size: 13px; color: #e9edf2; font-weight: 700;
+  }
+  .n-body { flex: 1; min-width: 0; }
+  .n-title { font-size: 12.5px; font-weight: 600; }
+  .n-text { font-size: 12px; color: #c9cbd1; font-family: var(--mono); font-size: 11px; margin-top: 1px; word-break: break-all; }
+  .n-btns { display: flex; gap: 8px; margin-top: 9px; }
+  .n-btns button {
+    flex: 1; font-family: var(--ios); font-size: 12px; cursor: pointer;
+    background: rgba(255,255,255,.14); color: #fff;
+    border: 0; border-radius: 8px; padding: 6px 0;
+  }
+  .n-btns button.pri { background: #e9edf2; color: #0a0c0e; font-weight: 600; }
+  .n-reply { display: none; margin-top: 9px; }
+  .n-reply.show { display: flex; gap: 8px; }
+  .n-reply input {
+    flex: 1; font-family: var(--ios); font-size: 12px; color: #fff;
+    background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.2);
+    border-radius: 8px; padding: 6px 10px; outline: none;
+  }
+  .n-reply button {
+    font-family: var(--ios); font-size: 12px; cursor: pointer;
+    background: rgba(255,255,255,.14); color: #fff; border: 0; border-radius: 8px; padding: 6px 12px;
+  }
+
+  /* ⌥space HUD */
+  .hudwrap {
+    position: absolute; inset: 0; z-index: 10; display: none;
+    background: rgba(4,5,7,.35);
+  }
+  .hudwrap.open { display: block; }
+  .hud {
+    position: absolute; left: 50%; top: 34%; transform: translateX(-50%);
+    width: min(560px, 90%);
+    background: var(--bg); border: 1px solid var(--border-2); border-radius: 10px;
+    box-shadow: 0 0 0 1px #000, 0 30px 90px rgba(0,0,0,.7);
+    overflow: hidden;
+  }
+  .hud-board {
+    display: flex; gap: 14px; align-items: center;
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    background: var(--inset); font-size: 10px; color: var(--ink-2);
+  }
+  .hud-board span { display: inline-flex; align-items: center; gap: 5px; }
+  .hud-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+  .hud-input .glyph { color: var(--sel); font-size: 15px; }
+  .hud-input input {
+    flex: 1; font: inherit; font-size: 14px; color: var(--ink);
+    background: none; border: 0; outline: none; caret-color: var(--sel);
+  }
+  .hud-input input::placeholder { color: var(--ink-3); }
+  .hud-out { padding: 0 14px 10px; font-size: 11px; color: var(--ink-2); display: none; }
+  .hud-out.show { display: block; }
+  .hud-out .red { color: var(--err); }
+  .hud-foot {
+    border-top: 1px solid var(--border); padding: 6px 14px;
+    font-size: 9.5px; color: var(--ink-3); display: flex; gap: 14px;
+  }
+
+  /* demo + notes */
+  .demo { display: flex; gap: 10px; justify-content: center; margin: 18px 0 30px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    font: inherit; font-size: 11px; padding: 8px 14px; cursor: pointer;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--border-2);
+    border-radius: var(--r-chip);
+  }
+  .btn.primary { background: var(--sel); color: var(--bg); border-color: var(--sel); font-weight: 700; }
+  .btn:active { transform: translateY(1px); }
+  kbd { font: inherit; color: var(--ink-2); border: 1px solid var(--border-2); border-radius: var(--r-chip); padding: 1px 5px; background: var(--surface); }
+  .demo .note-inline { color: var(--ink-3); font-size: 10.5px; }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+  .note { border: 1px solid var(--border); border-radius: 3px; padding: 12px 14px; background: rgba(16,20,26,.5); }
+  .note h5 { margin: 0 0 7px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+  .note p { margin: 0 0 4px; font-size: 10.5px; color: var(--ink-2); line-height: 1.55; }
+  .note b { color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="stage">
+  <h1>HYPERVISOR — MACOS SURFACE</h1>
+  <p class="sub">the app when its window is closed — menu bar, notifications, ⌥space. one grammar everywhere: letters approve · N: prompts · status</p>
+
+  <div class="desktop" id="desktop">
+    <div class="menubar">
+      <span class="apple"></span>
+      <div class="right">
+        <div class="hvitem" id="hvitem">
+          <i class="dot d-err" id="mbdot"></i>
+          <span class="cnt" id="mbcnt">1</span>
+        </div>
+        <span class="mb-glyph">􀙇</span>
+        <span class="mb-glyph">􀛨</span>
+        <span class="mb-glyph" style="font-family:var(--ios)">Fri 11:58</span>
+      </div>
+    </div>
+
+    <div class="dropdown" id="dropdown">
+      <div class="dd-head">
+        <span><i class="dot d-busy"></i>2 working</span>
+        <span><i class="dot d-ok"></i>2 done</span>
+        <span id="ddred"><i class="dot d-err"></i>1 pending</span>
+        <span class="yolo">yolo off</span>
+      </div>
+      <div id="ddapprs"></div>
+      <div class="dd-sess" id="ddsess"></div>
+      <div class="dd-foot">
+        <input id="ddinput" placeholder="a approves · 3: prompt · status" spellcheck="false" />
+        <span class="hint">⌥space anywhere</span>
+      </div>
+    </div>
+
+    <div class="notif" id="notif">
+      <div class="n-top">
+        <div class="n-icon">H</div>
+        <div class="n-body">
+          <div class="n-title">Hypervisor</div>
+          <div class="n-text" id="ntext"></div>
+        </div>
+      </div>
+      <div class="n-btns" id="nbtns">
+        <button class="pri" id="napprove">Approve</button>
+        <button id="nreplybtn">Reply…</button>
+      </div>
+      <div class="n-reply" id="nreply">
+        <input id="nreplyinput" placeholder="guidance — denies and steers" />
+        <button id="nreplysend">Send</button>
+      </div>
+    </div>
+
+    <div class="hudwrap" id="hudwrap">
+      <div class="hud">
+        <div class="hud-board" id="hudboard"></div>
+        <div class="hud-input">
+          <span class="glyph">❯</span>
+          <input id="hudinput" placeholder="a approves the pending request · 3: tighten the summary · status" spellcheck="false" />
+        </div>
+        <div class="hud-out" id="hudout"></div>
+        <div class="hud-foot"><span>⏎ run</span><span>esc close</span><span>same grammar as your phone</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo">
+    <span class="note-inline">click the <b style="color:var(--ink-2)">●</b> menu bar item · press <kbd>⌥ space</kbd> ·</span>
+    <button class="btn primary" id="fire">fire a permission request</button>
+    <span class="note-inline">then approve it from any surface</span>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h5>Menu bar</h5>
+      <p>one dot tells the whole story: <b>red</b> = something needs you (+count), <b>yellow</b> = fleet working, <b>green</b> = all clear. the dropdown is the phone's triage page docked in the corner — same rows, same letters, same input.</p>
+    </div>
+    <div class="note">
+      <h5>Notifications</h5>
+      <p>permission requests arrive as actionable notifications: <b>Approve</b> resolves it without opening anything; <b>Reply…</b> is deny-with-guidance inline. implementation: UNUserNotificationCenter category actions + text-input action (needs the native notification path, not the basic tauri plugin).</p>
+    </div>
+    <div class="note">
+      <h5>⌥Space</h5>
+      <p>a summonable command bar (tauri global-shortcut + a chromeless focused window). it is <b>the same text interface as the phone</b>: one input, letters approve, N: prompts. learn the grammar once, use it from any screen — or any device.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+
+  // ————— shared live state: all three surfaces render from this —————
+  const SESSIONS = [
+    { n: '1', dot: 'd-busy', t: 'refactor auth middleware', age: '2m' },
+    { n: '2', dot: 'd-ok', t: 'fix flaky retry test in ci', age: '9m' },
+    { n: '3', dot: 'd-ok', t: 'q3 roadmap narrative draft', age: '14m' },
+    { n: '4', dot: 'd-busy', t: 'migrate dashboard to tailwind v4', age: '1m' },
+    { n: '5', dot: 'd-err', t: 'integration tests for billing webhooks', age: 'now' },
+  ];
+  let queue = [
+    { l: 'A', n: '5', cmd: 'Bash(stripe fixtures pull --api-version 2026-03)' },
+  ];
+  let fired = false;
+
+  function agg() {
+    if (queue.length) return 'd-err';
+    return SESSIONS.some(s => s.dot === 'd-busy') ? 'd-busy' : 'd-ok';
+  }
+
+  function render() {
+    // menu bar
+    $('#mbdot').className = 'dot ' + agg();
+    $('#mbcnt').textContent = queue.length || '';
+    $('#mbcnt').style.display = queue.length ? '' : 'none';
+    // dropdown approvals
+    $('#ddapprs').innerHTML = queue.map(q => `
+      <div class="dd-appr">
+        <span class="alet">${q.l}</span>
+        <span class="cmd">${q.n} · ${q.cmd}</span>
+        <button data-l="${q.l}">Approve</button>
+      </div>`).join('');
+    $('#ddred').innerHTML = `<i class="dot d-err"></i>${queue.length} pending`;
+    document.querySelectorAll('#ddapprs button').forEach(b =>
+      b.addEventListener('click', e => { e.stopPropagation(); approve(b.dataset.l, 'menu bar'); }));
+    // dropdown sessions
+    $('#ddsess').innerHTML = SESSIONS.map(s => `
+      <div class="dd-row"><span class="num">${s.n}</span><i class="dot ${s.dot}"></i>
+        <span class="t">${s.t}</span><span class="age">${s.age}</span></div>`).join('');
+    // hud board
+    $('#hudboard').innerHTML =
+      `<span><i class="dot d-busy"></i>2 working</span><span><i class="dot d-ok"></i>2 done</span>` +
+      (queue.length
+        ? `<span><span class="alet">${queue[0].l}</span>&nbsp;${queue[0].n} wants: ${queue[0].cmd.slice(0, 34)}…</span>`
+        : `<span><i class="dot d-ok"></i>nothing pending</span>`);
+  }
+
+  function hudSay(html) {
+    const o = $('#hudout');
+    o.innerHTML = html;
+    o.classList.add('show');
+    setTimeout(() => o.classList.remove('show'), 3200);
+  }
+
+  function approve(letter, from) {
+    const i = queue.findIndex(q => q.l === letter);
+    if (i < 0) { hudSay(`nothing pending on “${letter}”`); return; }
+    const q = queue.splice(i, 1)[0];
+    const s = SESSIONS.find(x => x.n === q.n);
+    if (s) { s.dot = 'd-busy'; s.age = 'now'; }
+    hideNotif();
+    render();
+    hudSay(`<span style="color:var(--ok)">✓ ${q.l} approved from the ${from} — ${q.n} running</span>`);
+    setTimeout(() => { if (s) s.dot = 'd-ok'; render(); }, 4200);
+  }
+
+  // ————— menu bar dropdown —————
+  const dd = $('#dropdown'), hvitem = $('#hvitem');
+  hvitem.addEventListener('click', () => {
+    dd.classList.toggle('open');
+    hvitem.classList.toggle('open');
+  });
+  const ddinput = $('#ddinput');
+  ddinput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    runGrammar(ddinput.value.trim(), 'menu bar');
+    ddinput.value = '';
+  });
+
+  // ————— notification —————
+  const notif = $('#notif');
+  let notifLetter = null;
+  function showNotif(q) {
+    notifLetter = q.l;
+    $('#ntext').textContent = `${q.l} · ${q.n} wants: ${q.cmd}`;
+    $('#nreply').classList.remove('show');
+    $('#nbtns').style.display = '';
+    notif.classList.add('show');
+  }
+  function hideNotif() { notif.classList.remove('show'); }
+  $('#napprove').addEventListener('click', () => approve(notifLetter, 'notification'));
+  $('#nreplybtn').addEventListener('click', () => {
+    $('#nbtns').style.display = 'none';
+    $('#nreply').classList.add('show');
+    $('#nreplyinput').focus();
+  });
+  $('#nreplysend').addEventListener('click', () => {
+    const i = queue.findIndex(q => q.l === notifLetter);
+    if (i >= 0) queue.splice(i, 1);
+    hideNotif(); render();
+    hudSay('denied with guidance — message sent to the session');
+  });
+
+  // ————— ⌥space HUD —————
+  const hudwrap = $('#hudwrap'), hudinput = $('#hudinput');
+  function toggleHud(open) {
+    hudwrap.classList.toggle('open', open);
+    if (open) { render(); hudinput.focus(); }
+  }
+  document.addEventListener('keydown', e => {
+    if (e.altKey && e.code === 'Space') { e.preventDefault(); toggleHud(!hudwrap.classList.contains('open')); }
+    if (e.key === 'Escape') toggleHud(false);
+  });
+  hudwrap.addEventListener('mousedown', e => { if (e.target === hudwrap) toggleHud(false); });
+  hudinput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    runGrammar(hudinput.value.trim(), '⌥space bar');
+    hudinput.value = '';
+  });
+
+  // ————— one grammar for every surface —————
+  function runGrammar(v, from) {
+    if (!v) return;
+    let m;
+    if (/^status$/i.test(v)) {
+      hudSay(queue.length
+        ? `● 2 working · ● 2 done · <span class="red">${queue.length} pending — “${queue[0].l.toLowerCase()}” approves</span>`
+        : '● 2 working · ● 3 done · nothing pending');
+    } else if ((m = v.match(/^([a-z])$/i))) {
+      approve(m[1].toUpperCase(), from);
+    } else if ((m = v.match(/^(\d+):\s*(.+)/))) {
+      const s = SESSIONS.find(x => x.n === m[1]);
+      if (s) { s.dot = 'd-busy'; s.age = 'now'; render(); setTimeout(() => { s.dot = 'd-ok'; render(); }, 4600); }
+      hudSay(`→ sent to ${m[1]} from the ${from} — working`);
+    } else {
+      hudSay('grammar: a approves · 3: &lt;prompt&gt; · status');
+    }
+  }
+
+  // ————— demo: fire a new permission request —————
+  $('#fire').addEventListener('click', () => {
+    if (queue.some(q => q.l === 'B') || fired && queue.length > 1) return;
+    fired = true;
+    const q = { l: queue.length ? 'B' : 'A', n: '1', cmd: 'Bash(npm run db:migrate)' };
+    queue.push(q);
+    render();
+    showNotif(q);
+  });
+
+  render();
+  // opening beat: show the pending approval as a notification after a moment
+  setTimeout(() => { if (queue.length) showNotif(queue[0]); }, 900);
+})();
+</script>

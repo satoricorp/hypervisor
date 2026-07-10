@@ -222,11 +222,16 @@ AC: ticker `$x.xx · x.xM TOK` bottom-left matches a hand-check of one day.
   `WebviewWindow` satellite that auto-pauses when a session needs you.
   Spec: `design/tv.md`. Main-window CSP must not change.
 
-- [ ] **M7 — the macOS surface.** Menu bar item with aggregate dot, notification on
-done/needs_you with inline reply, dock badge = red count, global hotkey,
-launch-at-login, power assertion while sessions work.
-AC: with the window closed, a finishing session notifies; replying from the
-notification reaches the session.
+- [ ] **M7 — the macOS surface.** Menu bar dot (+red count) with a dropdown
+(the triage page docked in the corner), actionable notifications
+(Approve button + inline Reply = deny-with-guidance), ⌥Space command bar,
+dock badge, launch-at-login, power assertion while sessions work. The
+letter/N:/status **grammar is parsed once in the backend** and shared by
+every surface (dropdown, HUD, later M8a/M8b). Spec: `design/macos-surface.md`;
+mockup: `design/mockup-menubar.html`.
+AC: with the window closed, a permission request notifies; Approve on the
+notification unblocks the real session; replying denies with guidance; the
+menu bar dot flips red→yellow→green through the whole cycle.
 
 - [ ] **M8a — remote: tailnet mobile slice.** Triage page (needs-you stack +
   approve/deny + prompt) served from the backend on 127.0.0.1, exposed only
