@@ -1,8 +1,8 @@
 use crate::adapters::claude_code::ClaudeCodeAdapter;
 use crate::adapters::codex::CodexAdapter;
-use crate::adapters::cursor::CursorAdapter;
-use crate::adapters::opencode::OpencodeAdapter;
-use crate::adapters::{home_dir, Adapter, Session};
+use crate::adapters::cursor::{self, CursorAdapter};
+use crate::adapters::opencode::{self, OpencodeAdapter};
+use crate::adapters::{home_dir, refinalize, Adapter, Session};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -35,6 +35,14 @@ const ALL: [Harness; 4] = [
     Harness::Opencode,
 ];
 
+/// Why a snapshot was produced (tick never triggers adapter scans).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapshotReason {
+    Startup,
+    Fs,
+    Tick,
+}
+
 /// Scan all harnesses (or a subset) and return sessions sorted by mtime desc.
 pub fn scan_sessions(
     max_age_hours: f64,
@@ -47,16 +55,37 @@ pub fn scan_sessions(
         None => ALL.to_vec(),
     };
     for h in harnesses {
-        let part = match h {
-            Harness::ClaudeCode => ClaudeCodeAdapter.scan(max_age_hours, limit),
-            Harness::Codex => CodexAdapter.scan(max_age_hours, limit),
-            Harness::Cursor => CursorAdapter.scan(max_age_hours, limit),
-            Harness::Opencode => OpencodeAdapter.scan(max_age_hours, limit),
-        };
-        sessions.extend(part);
+        match scan_harness(h, max_age_hours, limit, "oneshot") {
+            Ok(part) => sessions.extend(part),
+            Err(e) => eprintln!("[scan] harness={} reason=oneshot error={e}", h.as_str()),
+        }
     }
     sessions.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
     sessions
+}
+
+fn scan_harness(
+    h: Harness,
+    max_age_hours: f64,
+    limit: usize,
+    reason: &str,
+) -> Result<Vec<Session>, String> {
+    eprintln!("[scan] harness={} reason={reason}", h.as_str());
+    match h {
+        // File adapters: Adapter::scan is infallible (empty on miss).
+        Harness::ClaudeCode => Ok(ClaudeCodeAdapter.scan(max_age_hours, limit)),
+        Harness::Codex => Ok(CodexAdapter.scan(max_age_hours, limit)),
+        // Sqlite adapters: surface open/query failures so the watcher can keep last-good.
+        // Adapter::scan remains the trait entry (swallows errors → empty); watcher uses Result.
+        Harness::Cursor => {
+            let _ = CursorAdapter;
+            cursor::scan_raw(max_age_hours, limit).map(crate::adapters::finalize)
+        }
+        Harness::Opencode => {
+            let _ = OpencodeAdapter;
+            opencode::scan_raw(max_age_hours, limit).map(crate::adapters::finalize)
+        }
+    }
 }
 
 fn source_roots() -> Vec<(Harness, PathBuf)> {
@@ -104,11 +133,24 @@ fn session_key(s: &Session) -> (String, String) {
     (s.harness.clone(), s.sid.clone())
 }
 
-/// Watch harness source roots; call `on_snapshot` with the full merged list
-/// on startup and after each debounced change (500ms).
+fn merge_cache(by_harness: &HashMap<Harness, Vec<Session>>) -> Vec<Session> {
+    let mut merged = Vec::new();
+    for h in ALL {
+        if let Some(part) = by_harness.get(&h) {
+            merged.extend(part.iter().cloned());
+        }
+    }
+    merged.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
+    merged
+}
+
+const TICK: Duration = Duration::from_secs(2);
+
+/// Watch harness source roots; call `on_snapshot` on startup, after each
+/// debounced fs change, and every 2s tick (re-finalize only — no adapter I/O).
 pub fn watch_sessions<F>(max_age_hours: f64, limit: usize, mut on_snapshot: F) -> Result<(), String>
 where
-    F: FnMut(Vec<Session>),
+    F: FnMut(Vec<Session>, SnapshotReason),
 {
     let (tx, rx) = mpsc::channel::<Result<Event, notify::Error>>();
     let mut watcher = RecommendedWatcher::new(
@@ -127,19 +169,32 @@ where
         }
     }
 
-    // Initial full snapshot before any fs event.
-    on_snapshot(scan_sessions(max_age_hours, limit, None));
+    // Per-harness cache — single writer (this loop). Tick re-finalizes in place.
+    let mut by_harness: HashMap<Harness, Vec<Session>> = HashMap::new();
+    let mut logged_degraded: HashSet<Harness> = HashSet::new();
+
+    for h in ALL {
+        match scan_harness(h, max_age_hours, limit, "startup") {
+            Ok(part) => {
+                by_harness.insert(h, part);
+            }
+            Err(e) => {
+                eprintln!(
+                    "[scan] harness={} reason=startup error={e} (starting empty)",
+                    h.as_str()
+                );
+                by_harness.insert(h, Vec::new());
+            }
+        }
+    }
+    on_snapshot(merge_cache(&by_harness), SnapshotReason::Startup);
 
     let debounce = Duration::from_millis(500);
     let mut pending: HashMap<Harness, Instant> = HashMap::new();
-    // Cache per-harness so we only rescan the harness that changed.
-    let mut by_harness: HashMap<Harness, Vec<Session>> = HashMap::new();
-    for h in ALL {
-        by_harness.insert(h, scan_sessions(max_age_hours, limit, Some(h)));
-    }
+    let mut last_tick = Instant::now();
 
     loop {
-        let timeout = pending
+        let debounce_timeout = pending
             .values()
             .min()
             .map(|t| {
@@ -151,6 +206,15 @@ where
                 }
             })
             .unwrap_or(Duration::from_secs(3600));
+
+        let since_tick = last_tick.elapsed();
+        let tick_timeout = if since_tick >= TICK {
+            Duration::from_millis(0)
+        } else {
+            TICK - since_tick
+        };
+
+        let timeout = debounce_timeout.min(tick_timeout);
 
         match rx.recv_timeout(timeout) {
             Ok(Ok(event)) => {
@@ -184,23 +248,39 @@ where
             .map(|(h, _)| *h)
             .collect();
 
-        if ready.is_empty() {
-            continue;
-        }
-
+        let mut fs_changed = false;
         for h in ready {
             pending.remove(&h);
-            by_harness.insert(h, scan_sessions(max_age_hours, limit, Some(h)));
-        }
-
-        let mut merged = Vec::new();
-        for h in ALL {
-            if let Some(part) = by_harness.get(&h) {
-                merged.extend(part.iter().cloned());
+            match scan_harness(h, max_age_hours, limit, "fs") {
+                Ok(part) => {
+                    by_harness.insert(h, part);
+                    logged_degraded.remove(&h);
+                    fs_changed = true;
+                }
+                Err(e) => {
+                    // Degrade to stale: keep last-good rows for this harness.
+                    if logged_degraded.insert(h) {
+                        eprintln!(
+                            "[scan] harness={} reason=fs degraded (keeping last-good): {e}",
+                            h.as_str()
+                        );
+                    }
+                }
             }
         }
-        merged.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
-        on_snapshot(merged);
+
+        if fs_changed {
+            on_snapshot(merge_cache(&by_harness), SnapshotReason::Fs);
+        }
+
+        if last_tick.elapsed() >= TICK {
+            last_tick = Instant::now();
+            // NO adapter scans — re-finalize state/age from cached mtime + last_role.
+            for part in by_harness.values_mut() {
+                refinalize(part);
+            }
+            on_snapshot(merge_cache(&by_harness), SnapshotReason::Tick);
+        }
     }
 
     let _ = watcher;
@@ -211,7 +291,7 @@ where
 pub fn watch_sessions_cli(max_age_hours: f64, limit: usize) -> Result<(), String> {
     let mut prev: HashMap<(String, String), String> = HashMap::new();
     eprintln!("watching… (ctrl-c to quit)");
-    watch_sessions(max_age_hours, limit, |sessions| {
+    watch_sessions(max_age_hours, limit, |sessions, _reason| {
         let mut seen: HashSet<(String, String)> = HashSet::new();
         for s in &sessions {
             let k = session_key(s);
@@ -225,4 +305,73 @@ pub fn watch_sessions_cli(max_age_hours: f64, limit: usize) -> Result<(), String
         }
         prev.retain(|k, _| seen.contains(k));
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::{age_str, session_state, ACTIVE_S};
+
+    #[test]
+    fn refinalize_flips_working_to_done() {
+        let mtime = crate::adapters::now_secs() - (ACTIVE_S + 1.0);
+        let mut sessions = vec![Session {
+            harness: "claude code".into(),
+            sid: "abc".into(),
+            title: String::new(),
+            model: String::new(),
+            cwd: "/tmp".into(),
+            branch: String::new(),
+            last_user: String::new(),
+            last_assistant: String::new(),
+            activity: String::new(),
+            mtime,
+            state: "working".into(),
+            age: "0s".into(),
+            repo: "tmp".into(),
+            src: String::new(),
+            sidechains: 0,
+            last_role: "assistant".into(),
+        }];
+        refinalize(&mut sessions);
+        assert_eq!(sessions[0].state, "done");
+        assert_eq!(
+            sessions[0].age,
+            age_str(crate::adapters::now_secs() - mtime)
+        );
+        assert_eq!(session_state(mtime, "assistant"), "done");
+    }
+
+    #[test]
+    fn degrade_keeps_last_good_on_scan_err() {
+        let mut by_harness: HashMap<Harness, Vec<Session>> = HashMap::new();
+        by_harness.insert(
+            Harness::Cursor,
+            vec![Session {
+                harness: "cursor".into(),
+                sid: "deadbeef".into(),
+                title: "kept".into(),
+                model: String::new(),
+                cwd: String::new(),
+                branch: String::new(),
+                last_user: String::new(),
+                last_assistant: String::new(),
+                activity: String::new(),
+                mtime: 1.0,
+                state: "done".into(),
+                age: "1d".into(),
+                repo: "-".into(),
+                src: String::new(),
+                sidechains: 0,
+                last_role: "assistant".into(),
+            }],
+        );
+        // Simulate fs scan failure: do not replace cache.
+        let err: Result<Vec<Session>, String> = Err("database disk image is malformed".into());
+        assert!(err.is_err());
+        let merged = merge_cache(&by_harness);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].sid, "deadbeef");
+        assert_eq!(merged[0].title, "kept");
+    }
 }

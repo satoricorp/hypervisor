@@ -29,6 +29,9 @@ pub struct Session {
     pub repo: String,
     pub src: String,
     pub sidechains: u32,
+    /// Kept for tick-time re-finalize (working→done) without rescanning.
+    #[serde(skip)]
+    pub last_role: String,
 }
 
 /// Internal scan row before finalize fills state/age/repo.
@@ -199,9 +202,19 @@ pub fn finalize(raw: Vec<RawSession>) -> Vec<Session> {
                 repo,
                 src: s.src,
                 sidechains: s.sidechains,
+                last_role: s.last_role,
             }
         })
         .collect()
+}
+
+/// Recompute state/age from cached mtime + last_role (no disk I/O).
+pub fn refinalize(sessions: &mut [Session]) {
+    let now = now_secs();
+    for s in sessions {
+        s.state = session_state(s.mtime, &s.last_role);
+        s.age = age_str(now - s.mtime);
+    }
 }
 
 pub fn empty_raw(harness: &str, sid: &str, mtime: f64, src: &str) -> RawSession {

@@ -11,7 +11,13 @@ pub struct OpencodeAdapter;
 
 impl Adapter for OpencodeAdapter {
     fn scan(&self, max_age_hours: f64, limit: usize) -> Vec<Session> {
-        finalize(scan_raw(max_age_hours, limit))
+        match scan_raw(max_age_hours, limit) {
+            Ok(raw) => finalize(raw),
+            Err(e) => {
+                eprintln!("[scan_opencode] {e}");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -19,33 +25,23 @@ pub fn db_path() -> PathBuf {
     PathBuf::from(format!("{}/.local/share/opencode/opencode.db", home_dir()))
 }
 
-pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
+pub fn scan_raw(max_age_hours: f64, limit: usize) -> Result<Vec<RawSession>, String> {
     let db = db_path();
     if !db.exists() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let src = db.to_string_lossy().to_string();
     // DECISION: mode=ro only (no immutable=1) — see open_ro.
-    let con = match open_ro(&db) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("[scan_opencode] {e}");
-            return Vec::new();
-        }
-    };
+    let con = open_ro(&db)?;
 
     let now = now_secs();
     let limit_i = (limit * 4) as i64;
-    let mut stmt = match con.prepare(
-        "SELECT id, parent_id, directory, title, model, time_created, time_updated, time_archived \
-         FROM session ORDER BY time_updated DESC LIMIT ?",
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[scan_opencode] {e}");
-            return Vec::new();
-        }
-    };
+    let mut stmt = con
+        .prepare(
+            "SELECT id, parent_id, directory, title, model, time_created, time_updated, time_archived \
+             FROM session ORDER BY time_updated DESC LIMIT ?",
+        )
+        .map_err(|e| e.to_string())?;
 
     let rows: Vec<(
         String,
@@ -56,24 +52,22 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
         i64,
         i64,
         Option<i64>,
-    )> = match stmt.query_map([limit_i], |row| {
-        Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
-            row.get(3)?,
-            row.get(4)?,
-            row.get(5)?,
-            row.get(6)?,
-            row.get(7)?,
-        ))
-    }) {
-        Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
-        Err(e) => {
-            eprintln!("[scan_opencode] {e}");
-            return Vec::new();
-        }
-    };
+    )> = stmt
+        .query_map([limit_i], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
 
     let mut sidechains: HashMap<String, u32> = HashMap::new();
     let mut candidates: Vec<(String, String, String, String, f64)> = Vec::new();
@@ -114,7 +108,7 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
 
     out.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
     out.truncate(limit);
-    out
+    Ok(out)
 }
 
 fn open_ro(db: &PathBuf) -> Result<Connection, String> {

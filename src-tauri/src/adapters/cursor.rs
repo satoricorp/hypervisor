@@ -9,16 +9,22 @@ pub struct CursorAdapter;
 
 impl Adapter for CursorAdapter {
     fn scan(&self, max_age_hours: f64, limit: usize) -> Vec<Session> {
-        finalize(scan_raw(max_age_hours, limit))
+        match scan_raw(max_age_hours, limit) {
+            Ok(raw) => finalize(raw),
+            Err(e) => {
+                eprintln!("[scan_cursor] {e}");
+                Vec::new()
+            }
+        }
     }
 }
 
-pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
+pub fn scan_raw(max_age_hours: f64, limit: usize) -> Result<Vec<RawSession>, String> {
     let home = home_dir();
     let base = format!("{home}/Library/Application Support/Cursor/User");
     let db = format!("{base}/globalStorage/state.vscdb");
     if !PathBuf::from(&db).exists() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut folders: HashMap<String, String> = HashMap::new();
@@ -50,45 +56,34 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
 
     let now = now_secs();
     let uri = format!("file:{db}?mode=ro&immutable=1");
-    let con = match Connection::open_with_flags(
+    let con = Connection::open_with_flags(
         &uri,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("[scan_cursor] {e}");
-            return Vec::new();
-        }
-    };
+    )
+    .map_err(|e| e.to_string())?;
 
-    let mut stmt = match con.prepare(
-        "SELECT composerId, workspaceId, lastUpdatedAt, isSubagent, value \
-         FROM composerHeaders WHERE isArchived=0 \
-         ORDER BY lastUpdatedAt DESC LIMIT ?",
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("[scan_cursor] {e}");
-            return Vec::new();
-        }
-    };
+    let mut stmt = con
+        .prepare(
+            "SELECT composerId, workspaceId, lastUpdatedAt, isSubagent, value \
+             FROM composerHeaders WHERE isArchived=0 \
+             ORDER BY lastUpdatedAt DESC LIMIT ?",
+        )
+        .map_err(|e| e.to_string())?;
     let limit_i = (limit * 4) as i64;
     let rows: Vec<(Option<String>, Option<String>, Option<i64>, Option<i64>, Option<String>)> =
-        match stmt.query_map([limit_i], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<i64>>(2)?,
-                row.get::<_, Option<i64>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
-        }) {
-            Ok(mapped) => mapped.filter_map(|r| r.ok()).collect(),
-            Err(e) => {
-                eprintln!("[scan_cursor] {e}");
-                return Vec::new();
-            }
-        };
+        stmt
+            .query_map([limit_i], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
 
     let mut out: Vec<(RawSession, Option<String>)> = Vec::new();
     let mut subcount: HashMap<String, u32> = HashMap::new();
@@ -155,5 +150,5 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
     let mut sessions: Vec<RawSession> = out.into_iter().map(|(s, _)| s).collect();
     sessions.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
     sessions.truncate(limit);
-    sessions
+    Ok(sessions)
 }

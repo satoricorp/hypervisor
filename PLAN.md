@@ -223,7 +223,7 @@ in M3x.*
   dialog once `claude /login` is refreshed; re-derive the pane parser from
   reality; fix the deny 400ms race if observed. Task file: `tasks/M3x.md`.
 
-- [ ] **H2 — hot-loop rework.** The 2s tick stops full-rescanning all four
+- [x] **H2 — hot-loop rework.** The 2s tick stops full-rescanning all four
   adapters; cached sessions re-finalize (state/age) on tick, adapters rescan
   only on fs events; single emitter (kills the snapshot race); sqlite
   torn-reads degrade to last-good instead of zero rows. Task file:

@@ -2,22 +2,27 @@
 
 use crate::adapters::Session;
 use crate::approvals::{self, PendingApproval, ToastEvent};
-use crate::control::{owned, tmux};
 use crate::control::owned::OwnedMap;
-use crate::registry::{scan_sessions, watch_sessions};
+use crate::control::{owned, tmux};
+use crate::registry::{scan_sessions, watch_sessions, SnapshotReason};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
 
 const MAX_AGE_HOURS: f64 = 48.0;
 const LIMIT: usize = 8;
-const APPROVAL_POLL_MS: u64 = 2000;
 
-#[derive(Serialize, Clone, Debug)]
+/// Poisoning-tolerant lock — a panic in one critical section must not brick
+/// the app. DECISION: small helper over parking_lot to avoid a new direct dep.
+fn lock<'a, T>(m: &'a Mutex<T>) -> MutexGuard<'a, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct SessionWire {
     pub harness: String,
@@ -50,6 +55,9 @@ pub struct PendingOwned {
 
 pub struct AppState {
     pub snapshot: Mutex<Vec<SessionWire>>,
+    /// Last adapter sessions from the watcher (or a oneshot command scan).
+    /// Tick re-finalizes these; emit paths must not full-rescan when this is set.
+    pub sessions: Mutex<Vec<Session>>,
     pub owned: Mutex<OwnedMap>,
     pub owned_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
@@ -175,50 +183,75 @@ fn merge_pending(
     wire
 }
 
+/// Build wire from cached sessions (or a provided list). Never full-rescans
+/// when the watcher cache is warm.
 fn apply_approvals_to_snapshot(
     state: &AppState,
     sessions: Option<Vec<Session>>,
 ) -> Vec<SessionWire> {
-    let owned = state.owned.lock().unwrap().clone();
-    let pending = state.pending.lock().unwrap().clone();
-    let approvals = state.approvals.lock().unwrap().clone();
-    let sessions = sessions.unwrap_or_else(|| scan_sessions(MAX_AGE_HOURS, LIMIT, None));
+    let owned = lock(&state.owned).clone();
+    let pending = lock(&state.pending).clone();
+    let approvals = lock(&state.approvals).clone();
+    let sessions = match sessions {
+        Some(s) => s,
+        None => {
+            let cached = lock(&state.sessions).clone();
+            if !cached.is_empty() {
+                cached
+            } else {
+                // Cold start before watcher has emitted — oneshot only.
+                scan_sessions(MAX_AGE_HOURS, LIMIT, None)
+            }
+        }
+    };
     // Drop pending entries once adapters have the real row.
     {
-        let mut p = state.pending.lock().unwrap();
+        let mut p = lock(&state.pending);
         p.retain(|sid, _| !sessions.iter().any(|s| &s.sid == sid));
     }
     merge_pending(to_wire(&sessions, &owned, &approvals), &owned, &pending, &approvals)
 }
 
 pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
+    *lock(&state.sessions) = sessions.clone();
     let wire = apply_approvals_to_snapshot(state, Some(sessions));
-    *state.snapshot.lock().unwrap() = wire.clone();
+    *lock(&state.snapshot) = wire.clone();
     let _ = app.emit("sessions:update", &wire);
 }
 
 fn emit_current(app: &AppHandle, state: &AppState) {
     let wire = apply_approvals_to_snapshot(state, None);
-    *state.snapshot.lock().unwrap() = wire.clone();
+    *lock(&state.snapshot) = wire.clone();
     let _ = app.emit("sessions:update", &wire);
 }
 
-fn refresh_approvals(app: &AppHandle, state: &AppState) {
-    let owned = state.owned.lock().unwrap().clone();
-    let snap = state.snapshot.lock().unwrap().clone();
-    let prev = state.approvals.lock().unwrap().clone();
+fn emit_if_changed(app: &AppHandle, state: &AppState, wire: Vec<SessionWire>) {
+    let mut snap = lock(&state.snapshot);
+    if *snap == wire {
+        return;
+    }
+    *snap = wire.clone();
+    drop(snap);
+    let _ = app.emit("sessions:update", &wire);
+}
+
+/// Approval detection using cached session cwds — no adapter scans.
+fn refresh_approvals(state: &AppState) -> Vec<(String, String)> {
+    let owned = lock(&state.owned).clone();
+    let sessions = lock(&state.sessions).clone();
+    let prev = lock(&state.approvals).clone();
 
     let mut harness_by_sid = HashMap::new();
     let mut cwd_by_sid = HashMap::new();
-    for s in &snap {
+    for s in &sessions {
         harness_by_sid.insert(s.sid.clone(), s.harness.clone());
         if s.harness == "opencode" && !s.cwd.is_empty() {
             cwd_by_sid.insert(s.sid.clone(), s.cwd.clone());
         }
     }
-    // Also seed harness from pending owned placeholders.
+    // Also seed from pending owned placeholders + wire snapshot (sidebar).
     {
-        let pending = state.pending.lock().unwrap();
+        let pending = lock(&state.pending);
         for (sid, p) in pending.iter() {
             harness_by_sid
                 .entry(sid.clone())
@@ -228,11 +261,15 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
             }
         }
     }
-
-    // Seed opencode cwds from a fresh harness scan (sidebar limit may omit some).
-    for s in scan_sessions(MAX_AGE_HOURS, 64, Some(crate::registry::Harness::Opencode)) {
-        if !s.cwd.is_empty() {
-            cwd_by_sid.entry(s.sid.clone()).or_insert(s.cwd);
+    {
+        let snap = lock(&state.snapshot);
+        for s in snap.iter() {
+            harness_by_sid
+                .entry(s.sid.clone())
+                .or_insert_with(|| s.harness.clone());
+            if s.harness == "opencode" && !s.cwd.is_empty() {
+                cwd_by_sid.entry(s.sid.clone()).or_insert_with(|| s.cwd.clone());
+            }
         }
     }
 
@@ -240,12 +277,12 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
     approvals::detect_opencode(&cwd_by_sid, &mut next);
     approvals::detect_tmux(&owned, &harness_by_sid, &prev, &mut next);
 
-    let yolo = *state.yolo.lock().unwrap();
+    let yolo = *lock(&state.yolo);
     let mut auto_toasts: Vec<(String, String)> = Vec::new();
 
     if yolo {
         let mut still = HashMap::new();
-        let mut seen = state.yolo_seen.lock().unwrap();
+        let mut seen = lock(&state.yolo_seen);
         for (sid, pending) in next {
             let key = match &pending.source {
                 approvals::ApprovalSource::Opencode { request_id, .. } => {
@@ -259,7 +296,6 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
                 }
             };
             if seen.contains(&key) {
-                // Already auto-approved — wait for detection to drop it.
                 continue;
             }
             let tmux_target = owned.get(&sid).map(|e| e.tmux.as_str());
@@ -275,23 +311,13 @@ fn refresh_approvals(app: &AppHandle, state: &AppState) {
             }
         }
         drop(seen);
-        *state.approvals.lock().unwrap() = still;
+        *lock(&state.approvals) = still;
     } else {
-        state.yolo_seen.lock().unwrap().clear();
-        *state.approvals.lock().unwrap() = next;
+        lock(&state.yolo_seen).clear();
+        *lock(&state.approvals) = next;
     }
 
-    emit_current(app, state);
-
-    for (sid, text) in auto_toasts {
-        let short = if sid.len() > 8 { &sid[..8] } else { &sid };
-        let html = format!(
-            "yolo approved <b>{}</b> · {}",
-            escape_html(short),
-            escape_html(&text)
-        );
-        let _ = app.emit("toast", &ToastEvent { html });
-    }
+    auto_toasts
 }
 
 fn escape_html(s: &str) -> String {
@@ -302,38 +328,52 @@ fn escape_html(s: &str) -> String {
 }
 
 pub fn start_watcher(app: AppHandle, state: Arc<AppState>) {
-    // FS watcher thread (existing).
-    {
-        let handle = app.clone();
-        let st = Arc::clone(&state);
-        thread::spawn(move || {
-            if let Err(e) = watch_sessions(MAX_AGE_HOURS, LIMIT, move |sessions| {
-                emit_snapshot(&handle, &st, sessions);
-            }) {
-                eprintln!("session watcher failed: {e}");
+    // Single emitter thread: fs events + 2s tick (approvals + re-finalize).
+    thread::spawn(move || {
+        let handle = app;
+        let st = state;
+        if let Err(e) = watch_sessions(MAX_AGE_HOURS, LIMIT, move |sessions, reason| {
+            *lock(&st.sessions) = sessions.clone();
+
+            let auto_toasts = if reason == SnapshotReason::Tick {
+                refresh_approvals(&st)
+            } else {
+                Vec::new()
+            };
+
+            let wire = apply_approvals_to_snapshot(&st, Some(sessions));
+            match reason {
+                SnapshotReason::Tick => emit_if_changed(&handle, &st, wire),
+                SnapshotReason::Startup | SnapshotReason::Fs => {
+                    *lock(&st.snapshot) = wire.clone();
+                    let _ = handle.emit("sessions:update", &wire);
+                }
             }
-        });
-    }
-    // Approval poller — every 2s (opencode GET /permission + tmux panes).
-    {
-        let handle = app.clone();
-        let st = Arc::clone(&state);
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_millis(APPROVAL_POLL_MS));
-            refresh_approvals(&handle, &st);
-        });
-    }
+
+            for (sid, text) in auto_toasts {
+                let short = if sid.len() > 8 { &sid[..8] } else { &sid };
+                let html = format!(
+                    "yolo approved <b>{}</b> · {}",
+                    escape_html(short),
+                    escape_html(&text)
+                );
+                let _ = handle.emit("toast", &ToastEvent { html });
+            }
+        }) {
+            eprintln!("session watcher failed: {e}");
+        }
+    });
 }
 
 #[tauri::command]
 pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Vec<SessionWire> {
-    let snap = state.snapshot.lock().unwrap();
+    let snap = lock(&state.snapshot);
     if !snap.is_empty() {
         return snap.clone();
     }
     drop(snap);
     let wire = apply_approvals_to_snapshot(&state, None);
-    *state.snapshot.lock().unwrap() = wire.clone();
+    *lock(&state.snapshot) = wire.clone();
     wire
 }
 
@@ -357,15 +397,15 @@ pub fn spawn_session(
 
     if let Some(sid) = &spawned.sid {
         {
-            let mut map = state.owned.lock().unwrap();
+            let mut map = lock(&state.owned);
             map.insert(
                 sid.clone(),
                 owned::OwnedEntry::new(tmux_name.clone(), harness_label.clone()),
             );
-            let path = state.owned_path.lock().unwrap().clone();
+            let path = lock(&state.owned_path).clone();
             owned::save(&path, &map)?;
         }
-        state.pending.lock().unwrap().insert(
+        lock(&state.pending).insert(
             sid.clone(),
             PendingOwned {
                 harness: harness_label.clone(),
@@ -402,12 +442,12 @@ pub fn spawn_session(
         match owned::wait_for_sid(&harness2, &cwd2, spawn_time) {
             Some(sid) => {
                 {
-                    let mut map = st.owned.lock().unwrap();
+                    let mut map = lock(&st.owned);
                     map.insert(
                         sid.clone(),
                         owned::OwnedEntry::new(tmux_name2.clone(), harness_label2.clone()),
                     );
-                    let path = st.owned_path.lock().unwrap().clone();
+                    let path = lock(&st.owned_path).clone();
                     if let Err(e) = owned::save(&path, &map) {
                         eprintln!("owned.json save failed: {e}");
                     }
@@ -434,7 +474,7 @@ pub fn send_prompt(
     text: String,
 ) -> Result<(), String> {
     {
-        let map = state.owned.lock().unwrap();
+        let map = lock(&state.owned);
         if let Some(entry) = map.get(&sid).cloned() {
             drop(map);
             return tmux::send(&entry.tmux, &text);
@@ -442,15 +482,22 @@ pub fn send_prompt(
     }
 
     let sess = {
-        let snap = state.snapshot.lock().unwrap();
+        let snap = lock(&state.snapshot);
         snap.iter().find(|s| s.sid == sid).cloned()
     };
     let sess = match sess {
         Some(s) => s,
         None => {
-            let owned = state.owned.lock().unwrap().clone();
-            let approvals = state.approvals.lock().unwrap().clone();
-            let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
+            let owned = lock(&state.owned).clone();
+            let approvals = lock(&state.approvals).clone();
+            let sessions = {
+                let cached = lock(&state.sessions).clone();
+                if !cached.is_empty() {
+                    cached
+                } else {
+                    scan_sessions(MAX_AGE_HOURS, LIMIT, None)
+                }
+            };
             to_wire(&sessions, &owned, &approvals)
                 .into_iter()
                 .find(|s| s.sid == sid)
@@ -473,7 +520,7 @@ pub fn kill_session(
     state: State<'_, Arc<AppState>>,
     sid: String,
 ) -> Result<(), String> {
-    let map = state.owned.lock().unwrap();
+    let map = lock(&state.owned);
     let target = map
         .get(&sid)
         .map(|e| e.tmux.clone())
@@ -489,19 +536,14 @@ pub fn approve_session(
     sid: String,
 ) -> Result<(), String> {
     let pending = {
-        let map = state.approvals.lock().unwrap();
+        let map = lock(&state.approvals);
         map.get(&sid)
             .cloned()
             .ok_or_else(|| "nothing pending approval on this session".to_string())?
     };
-    let tmux_target = state
-        .owned
-        .lock()
-        .unwrap()
-        .get(&sid)
-        .map(|e| e.tmux.clone());
+    let tmux_target = lock(&state.owned).get(&sid).map(|e| e.tmux.clone());
     approvals::approve(&pending, tmux_target.as_deref())?;
-    state.approvals.lock().unwrap().remove(&sid);
+    lock(&state.approvals).remove(&sid);
     emit_current(&app, &state);
     Ok(())
 }
@@ -514,33 +556,28 @@ pub fn deny_session(
     guidance: String,
 ) -> Result<(), String> {
     let pending = {
-        let map = state.approvals.lock().unwrap();
+        let map = lock(&state.approvals);
         map.get(&sid)
             .cloned()
             .ok_or_else(|| "nothing pending approval on this session".to_string())?
     };
-    let tmux_target = state
-        .owned
-        .lock()
-        .unwrap()
-        .get(&sid)
-        .map(|e| e.tmux.clone());
+    let tmux_target = lock(&state.owned).get(&sid).map(|e| e.tmux.clone());
     approvals::deny(&pending, &guidance, tmux_target.as_deref())?;
-    state.approvals.lock().unwrap().remove(&sid);
+    lock(&state.approvals).remove(&sid);
     emit_current(&app, &state);
     Ok(())
 }
 
 #[tauri::command]
 pub fn set_yolo(state: State<'_, Arc<AppState>>, on: bool) -> Result<(), String> {
-    *state.yolo.lock().unwrap() = on;
+    *lock(&state.yolo) = on;
     if !on {
-        state.yolo_seen.lock().unwrap().clear();
+        lock(&state.yolo_seen).clear();
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_yolo(state: State<'_, Arc<AppState>>) -> bool {
-    *state.yolo.lock().unwrap()
+    *lock(&state.yolo)
 }

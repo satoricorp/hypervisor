@@ -6,7 +6,9 @@ pub mod registry;
 mod tv;
 
 pub use adapters::{Adapter, Session};
-pub use registry::{scan_sessions, watch_sessions, watch_sessions_cli, Harness};
+pub use registry::{
+    scan_sessions, watch_sessions, watch_sessions_cli, Harness, SnapshotReason,
+};
 
 use control::adopt::adopt_session;
 use events::{
@@ -31,6 +33,7 @@ pub fn run() {
             let owned_map = control::owned::load(&owned_path);
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
+                sessions: std::sync::Mutex::new(Vec::new()),
                 owned: std::sync::Mutex::new(owned_map),
                 owned_path: std::sync::Mutex::new(owned_path),
                 pending: std::sync::Mutex::new(HashMap::new()),

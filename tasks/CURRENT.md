@@ -1,69 +1,76 @@
-# H2 — the hot loop: stop rescanning the world every 2s
+# H3 — surface failures + webview safety
 
-**You are building exactly one thing this session:** the 2s approval tick
-stops doing full adapter rescans. After this, an idle app over idle
-sessions does near-zero disk I/O — and dots still flip within 2s.
+**You are building exactly one thing this session:** the app stops hiding
+its failures (spawn deaths, adapter degradation, the 8-session cap) and the
+webview stops trusting raw HTML.
 
-Today's behavior (found in the 2026-07-10 review): every 2s,
-`refresh_approvals` ends in `emit_current` → `scan_sessions(None)` — a FULL
-rescan of all four adapters (glob + up-to-1MB tail reads of every <48h
-claude jsonl, cursor `state.vscdb` open, `opencode.db` open), PLUS a second
-opencode-only scan for cwd seeding, PLUS one `capture-pane` proc per owned
-session, PLUS the serve health probe. The notify watcher's debounced
-per-harness cache is bypassed entirely. The subtlety: the tick is also what
-turns dots green (no fs event fires when a session goes idle), so it can't
-just be removed — it must re-finalize cached state instead of rescanning.
+## Steps
 
-## Target architecture
-
-One loop owns the cache and the emits (fold the approval tick into the
-watcher loop — its `recv_timeout` is already the right shape):
-
-- **fs event (debounced, existing)** → rescan only the changed harness
-  into the by_harness cache → snapshot.
-- **2s tick** → NO adapter scans. Re-finalize cached sessions (recompute
-  state/age from cached mtime + last_role — this flips working→done) +
-  approval detection (capture-pane for owned; opencode `GET /permission`
-  with cwds taken from the cache, not a fresh scan) → emit only if the
-  wire snapshot actually changed.
-- Single emitter thread → the watcher/poller snapshot race disappears
-  (no sequence numbers needed).
+1. **CSP.** `tauri.conf.json` `security.csp` is currently `null`. Set a
+   real policy (`default-src 'self'` baseline; `style-src` inline only if
+   the CSS genuinely needs it; the ipc/asset origins Tauri requires). The
+   tv satellite window is remote-content by design and must still open —
+   verify, don't touch its code.
+2. **Structured toasts.** `ToastEvent` becomes
+   `{ label: String, detail: Option<String> }` — no HTML across the wire,
+   ever. Frontend `Toast` renders text nodes (bold label styled in the
+   component, not via markup in the payload). Kill
+   `dangerouslySetInnerHTML` in Toast.tsx and every `TOAST` dispatch that
+   builds HTML strings (store.tsx). The `iconOf` innerHTML call sites
+   (static local SVG constants) may stay. Rationale: approval text comes
+   from pane captures — agent-influenced content — and today one forgotten
+   `esc()` is an XSS with `invoke("approve_session")` reach.
+3. **Spawn health.** ~2s after `/new` (and adopt), check the pane is alive
+   (`tmux -L hypervisor has-session` / pane_dead). Dead → toast the last
+   pane lines (e.g. `claude: command not found`) and remove the pending
+   placeholder + owned entry. Today a failed spawn leaves a ghost
+   "new session — xxxxxxxx" row forever and logs only to a terminal
+   nobody is watching.
+4. **Health line.** Statusbar gains a quiet segment fed by a `health`
+   event: watcher alive · per-adapter last-scan ok/degraded · serve
+   up/down. One glance replaces reading eprintln output.
+5. **Sidebar overflow.** Wire gains `total`; when total > shown, the
+   sidebar footer shows `+N more · not monitored` — honest about the
+   `LIMIT = 8` cap.
+6. **Subagents.** `wireToSession` always emits `subs: []`, so the h/l
+   keyboard affordance is dead on live data. Populate claude code `subs`
+   from sidechain rows (target/task/state — `spike/hvwatch.py` is the
+   oracle). If the transcript data can't support it cleanly, write a
+   `// DECISION:` comment explaining why, leave subs empty, and hide the
+   h/l hint when a session has none. Either way, stop advertising a dead
+   feature.
 
 ## Definition of done
 
-1. Instrument scans (debug log `[scan] harness=<h> reason=<fs|tick|startup>`).
-   With the app open and no session activity for 60s: zero adapter scans
-   after startup. (Health probe and owned-pane captures are allowed.)
-2. No regression on liveness: a real claude session's dot goes yellow
-   within 2s of it starting work, and green within ~2s after `ACTIVE_S`
-   idle elapses.
-3. Approvals still work end-to-end: opencode red row + Tab approve
-   (the /tmp trigger config from tasks/M3.md Evidence), claude fixture
-   tests green.
-4. Degrade to stale, not to zero: when `state.vscdb` (or `opencode.db`)
-   reads fail — torn WAL, "database disk image is malformed" — keep the
-   last good sessions for that harness and log once. The sidebar must not
-   drop rows on a transient read error. Re-read on the next fs event.
-5. Lock hygiene on the loop path: single writer for the cache; replace the
-   scattered `.lock().unwrap()` chains with a small poisoning-tolerant
-   helper or consolidate under one state lock. New deps only with a
-   `// DECISION:` note (parking_lot acceptable).
+1. CSP proof: a `<script src="https://example.com/x.js">` injected via
+   devtools is blocked (console error captured in Evidence); the app is
+   fully functional afterwards; the tv window still opens.
+2. `grep -rn dangerouslySetInnerHTML src/` shows only `iconOf` call sites.
+3. Spawning with the harness CLI unavailable (e.g. a PATH-stripped wrapper
+   script) produces a visible toast naming the failure; no ghost
+   placeholder or owned entry remains.
+4. Kill `opencode serve` mid-run → the health segment flips within one
+   tick; the rest of the sidebar keeps working.
+5. With >8 recent sessions on disk, the footer shows the overflow count.
 6. `python3 spike/compare.py` OK · `bunx tsc --noEmit` · `cargo test --lib`
-   · `npm run tauri dev` boots · `hvscan --watch` still works.
+   · `npm run tauri dev` boots.
 
 ## Scope fence
 
-- Adapter parsing and `Adapter::scan` signatures untouched (compare.py).
-- No UI changes, no new features, no approval-logic changes beyond where
-  detection gets its inputs from.
+- No loop restructuring beyond emitting health (H2 owns the loop).
+- No remote/grammar work. The mockup DOM stays the contract for everything
+  not listed here.
+- Adapters: only the sidechain-population change in step 6; compare.py
+  must stay OK (it compares the fields it compares — extending subs data
+  must not alter existing fields).
 
 ## When done
 
-1. Evidence: the scan-count log over 60s idle, the working→done timing
-   note, the degradation proof (real or simulated torn read).
-2. Tick H2 in PLAN.md.
-3. Refresh `tasks/CURRENT.md` with `tasks/H3.md`.
-4. Commit: `H2: event-driven scans — 2s tick re-finalizes cache, no full rescans`.
+1. Evidence: CSP console error, the failed-spawn toast, health-line
+   screenshot or DOM text, overflow footer proof.
+2. Tick H3 in PLAN.md.
+3. Refresh `tasks/CURRENT.md` with `tasks/M7g.md`.
+4. Commit: `H3: CSP + structured toasts, spawn health, adapter health line, overflow honesty`.
 
 ## Evidence
 
