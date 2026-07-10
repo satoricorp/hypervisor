@@ -1,10 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 
 export function Titlebar() {
   const { dispatch } = useStore();
   const [tvOn, setTvOn] = useState(false);
+
+  // ⌘T toggles the tv from anywhere in the app (Titlebar is always mounted)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        invoke<boolean>("toggle_tv")
+          .then(setTvOn)
+          .catch((err) =>
+            dispatch({ type: "TOAST", html: `tv: ${String(err)}` }),
+          );
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [dispatch]);
 
   // TV design-review prototype (design/tv.md). Plain click toggles the PiP
   // player; ⌥-click simulates a needs-you interrupt so the pause/strip flow
@@ -36,7 +52,7 @@ export function Titlebar() {
       <button
         className={"tvbtn" + (tvOn ? " on" : "")}
         id="tvbtn"
-        title="picture-in-picture tv — ⌥-click simulates an interrupt"
+        title="picture-in-picture tv (⌘T) — ⌥-click simulates an interrupt"
         type="button"
         onClick={(e) => onTv(e.altKey)}
       >

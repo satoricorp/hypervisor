@@ -17,6 +17,10 @@ file directly:
 - `AGENTS.md` at the repo root tells any agent to start there.
 - A milestone is complete when its checkbox below is ticked and its evidence
   is recorded in the task file. One milestone per agent session.
+- **Queued task files** (each opens with a prerequisite gate — a builder
+  must verify the gate before building): `tasks/TV.md` (gate: M3),
+  `tasks/M7.md` (gate: M3), `tasks/M8a.md` (gate: M7). After M3 lands, TV
+  and M7 can proceed in parallel with M4/M5/M6 — they touch different areas.
 
 ## References (read in this order)
 
@@ -128,6 +132,7 @@ tmux session is working — without it, soften the chip copy.
 | `/` | command menu in prompt (filter as you type) |
 | `⌘K` | palette: session/history/usage/access/settings + commands |
 | `⌘N` | New Agent (harness → model picker) |
+| `⌘T` | toggle the tv (PiP pauses on hide, resumes on show) |
 | `esc` | back out: menu step → menu → blur → session view |
 
 Prompt focused: `⏎` sends to the target chip (`● 3` / `● 1·2`). Typing at a
