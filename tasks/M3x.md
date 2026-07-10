@@ -48,4 +48,54 @@ mechanism; this session replaces faith with a capture.
 
 ## Evidence
 
-(builder fills this in — an empty Evidence section means the milestone is not done)
+### Gate
+
+- `claude auth status`: loggedIn true (claude.ai / Max).
+- `env -u ANTHROPIC_BASE_URL claude -p "say ok"` → `OK`.
+- Note: `ANTHROPIC_BASE_URL=http://127.0.0.1:43123` in `~/.zshrc` breaks
+  default spawn; proof sessions used `unset ANTHROPIC_BASE_URL` in the
+  tmux shell cmd. Same `tmux -L hypervisor` + `approvals::{approve,deny}`
+  send-keys as the app Tab / deny path.
+
+### Live approve (DoD #1)
+
+Session `hv-m3x-approve` / sid `daf21ec5-…`. Prompted to run
+`./scripts_build.sh`. Live dialog (full paste also in tasks/M3.md):
+
+```
+ Bash command
+
+   ./scripts_build.sh
+   Run the build script once
+
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: ./scripts_build.sh *
+   3. No
+```
+
+`send-keys 1 Enter` → pane shows `hello-from-m3x`.
+
+### Live deny (DoD #2)
+
+Session `hv-m3x-deny` / sid `49ad00c6-…`. Same dialog → `send-keys 3 Enter`
+→ transcript tool_result rejected → guidance typed → assistant `DENIED_M3X`.
+
+### Parser
+
+Updated `parse_claude_pane` for the live `Bash command` block; legacy
+`Bash(cmd)` fixture still works. Tests: `parses_claude_bash_permission_live`
++ legacy + edit.
+
+### Deny timing
+
+Input prompt returned **~59ms** after `3 Enter`. 400ms sleep kept (enough;
+no poll needed).
+
+### Verification
+
+- `python3 spike/compare.py` → OK (24 sessions, 0 diffs)
+- `bunx tsc --noEmit` → OK
+- `cargo test --lib` → 16 passed, 3 ignored

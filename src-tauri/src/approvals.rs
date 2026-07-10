@@ -73,6 +73,7 @@ fn has_yes_option(pane: &str) -> bool {
 
 fn has_proceed(pane: &str) -> bool {
     pane.contains("Do you want to proceed?")
+        || pane.contains("This command requires approval")
 }
 
 fn edit_target(pane: &str) -> Option<String> {
@@ -90,8 +91,66 @@ fn edit_target(pane: &str) -> Option<String> {
     None
 }
 
+/// Live Claude Code v2.1.206 dialog (M3x):
+/// ```text
+///  Bash command
+///    ./scripts_build.sh
+///    Run the build script once
+///  This command requires approval
+///  Do you want to proceed?
+/// ```
+fn bash_command_block(pane: &str) -> Option<String> {
+    let lines: Vec<&str> = pane.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim() != "Bash command" {
+            continue;
+        }
+        for next in lines.iter().skip(i + 1) {
+            let t = next.trim();
+            if t.is_empty() {
+                continue;
+            }
+            // Stop at dialog chrome / description-only lines that aren't a command.
+            if t.starts_with("This command requires")
+                || t.starts_with("Do you want")
+                || t.starts_with("❯")
+                || t.starts_with("1.")
+                || t.starts_with("2.")
+                || t.starts_with("3.")
+            {
+                break;
+            }
+            // First non-empty line after the header is the command.
+            return Some(format!("Bash({t})"));
+        }
+    }
+    None
+}
+
+/// Fallback: `2. Yes, and don't ask again for: ./cmd *`
+fn ask_again_command(pane: &str) -> Option<String> {
+    const MARKER: &str = "don't ask again for:";
+    // Curly apostrophe variant from the live TUI.
+    const MARKER_CURLY: &str = "don\u{2019}t ask again for:";
+    for line in pane.lines() {
+        let t = line.trim();
+        let Some((_, raw)) = t
+            .split_once(MARKER)
+            .or_else(|| t.split_once(MARKER_CURLY))
+        else {
+            continue;
+        };
+        let rest = raw.trim().trim_end_matches('*').trim();
+        if rest.is_empty() || rest.contains(" commands in") {
+            continue;
+        }
+        return Some(format!("Bash({rest})"));
+    }
+    None
+}
+
 /// Parse a Claude Code permission prompt from a tmux pane capture.
-/// Returns human-readable approval text (e.g. `Bash(scripts/build.sh)`).
+/// Returns human-readable approval text (e.g. `Bash(./scripts_build.sh)`).
 pub fn parse_claude_pane(pane: &str) -> Option<String> {
     let proceed = has_proceed(pane);
     let edit = edit_target(pane);
@@ -100,13 +159,19 @@ pub fn parse_claude_pane(pane: &str) -> Option<String> {
     if !proceed && edit.is_none() {
         return None;
     }
-    // Prefer an explicit Tool(arg) line near the prompt.
+    // Prefer an explicit Tool(arg) line near the prompt (older TUI / fixtures).
     if proceed || yes {
-        // Search upward-ish: any tool call line in the pane.
         for line in pane.lines().rev() {
             if let Some(call) = tool_call_on_line(line) {
                 return Some(call);
             }
+        }
+        // Live v2.1.206 layout: "Bash command" block, then the argv line.
+        if let Some(call) = bash_command_block(pane) {
+            return Some(call);
+        }
+        if let Some(call) = ask_again_command(pane) {
+            return Some(call);
         }
     }
     if let Some(e) = edit {
@@ -188,7 +253,9 @@ pub fn deny(
         }
         ApprovalSource::Tmux => {
             let target = tmux_target.ok_or("no tmux target for deny")?;
-            // Empirical: option 3 = "No, and tell Claude what to do differently".
+            // Empirical (live M3x): option 3 = "No". After dismiss, TUI returns
+            // to the input prompt in ~60ms; 400ms sleep is enough (no race
+            // observed). Guidance is then typed as a normal prompt.
             tmux::send_keys(target, &["3", "Enter"])?;
             if !guidance.trim().is_empty() {
                 std::thread::sleep(std::time::Duration::from_millis(400));
@@ -281,16 +348,31 @@ pub fn detect_opencode(
 mod tests {
     use super::*;
 
-    // Empirical fixture from Claude Code permission dialog (GH #11380 +
-    // binary strings for v2.1.206). Live OAuth expired on this machine —
-    // see Evidence.
-    const CLAUDE_PANE: &str = r#"
+    // Legacy fixture (GH #11380 + binary strings) — still accepted.
+    const CLAUDE_PANE_LEGACY: &str = r#"
  Bash(scripts/build.sh)
 
  Do you want to proceed?
  ❯ 1. Yes
    2. Yes, and don't ask again for bash scripts/build.sh commands in
    3. No, and tell Claude what to do differently (esc)
+"#;
+
+    // Live capture 2026-07-10 (Claude Code v2.1.206, M3x) — see tasks/M3.md.
+    const CLAUDE_PANE_LIVE: &str = r#"
+ Bash command
+
+   ./scripts_build.sh
+   Run the build script once
+
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: ./scripts_build.sh *
+   3. No
+
+ Esc to cancel · Tab to amend · ctrl+e to explain
 "#;
 
     const CLAUDE_EDIT_PANE: &str = r#"
@@ -304,9 +386,15 @@ mod tests {
 "#;
 
     #[test]
-    fn parses_claude_bash_permission() {
-        let text = parse_claude_pane(CLAUDE_PANE).expect("parse");
+    fn parses_claude_bash_permission_legacy() {
+        let text = parse_claude_pane(CLAUDE_PANE_LEGACY).expect("parse");
         assert_eq!(text, "Bash(scripts/build.sh)");
+    }
+
+    #[test]
+    fn parses_claude_bash_permission_live() {
+        let text = parse_claude_pane(CLAUDE_PANE_LIVE).expect("parse");
+        assert_eq!(text, "Bash(./scripts_build.sh)");
     }
 
     #[test]

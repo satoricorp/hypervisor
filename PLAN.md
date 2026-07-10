@@ -210,8 +210,7 @@ spike is their test oracle; UI second, binding them together in M2).
 `PreToolUse`/permission events or transcript markers; codex: approval prompts in
 rollout). Tab approves, typing denies-with-guidance, yolo toggle.
 AC: a real `claude` session asking to run a command is approved from Hypervisor
-with Tab and proceeds. *Open AC (claude-live proof, OAuth was expired) closes
-in M3x.*
+with Tab and proceeds. *Open AC closed in M3x (live pane + approve/deny proof).*
 
 - [x] **H1 — hardening: safe tests + small fixes.** `cargo test --lib` becomes
   side-effect-free (live tests gated behind `HV_LIVE=1 -- --ignored`);
@@ -219,7 +218,7 @@ in M3x.*
   dead entries pruned, done-state approvals detected); codex midnight
   correlation; README + single lockfile. Task file: `tasks/H1.md`.
 
-- [ ] **M3x — approvals proven live.** Run M3 DoD #1/#2 against a real claude
+- [x] **M3x — approvals proven live.** Run M3 DoD #1/#2 against a real claude
   dialog once `claude /login` is refreshed; re-derive the pane parser from
   reality; fix the deny 400ms race if observed. Task file: `tasks/M3x.md`.
 

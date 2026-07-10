@@ -1,99 +1,122 @@
-# M7g — the grammar core: one language, stable ids, survives window close
+# H2 — the hot loop: stop rescanning the world every 2s
 
-**Prerequisite gate: H1 must be ticked in PLAN.md** (owned.json v2 carries
-harness; tests are safe). M3x should be closed too — the grammar routes
-into approvals and must stand on live-proven ground; if M3x is still open,
-stop and report.
+**You are building exactly one thing this session:** the 2s approval tick
+stops doing full adapter rescans. After this, an idle app over idle
+sessions does near-zero disk I/O — and dots still flip within 2s.
 
-**You are building exactly one thing this session:** the backend command
-grammar that every future surface shares (menu bar dropdown, ⌥Space, the
-tailnet phone page, iMessage), plus the two properties it needs to be safe:
-**stable session ids** and **a backend that outlives the window**. No tray,
-no notifications, no HTTP server — those are M7/M8a.
+Today's behavior (found in the 2026-07-10 review): every 2s,
+`refresh_approvals` ends in `emit_current` → `scan_sessions(None)` — a FULL
+rescan of all four adapters (glob + up-to-1MB tail reads of every <48h
+claude jsonl, cursor `state.vscdb` open, `opencode.db` open), PLUS a second
+opencode-only scan for cwd seeding, PLUS one `capture-pane` proc per owned
+session, PLUS the serve health probe. The notify watcher's debounced
+per-harness cache is bypassed entirely. The subtlety: the tick is also what
+turns dots green (no fs event fires when a session goes idle), so it can't
+just be removed — it must re-finalize cached state instead of rescanning.
 
-This is the grammar work extracted from M7 (see design/macos-surface.md
-"The grammar is universal") so remote doesn't wait on tray/notification
-plumbing. PLAN.md's rule stands: the parser is built once, in the backend,
-never per-surface.
+## Target architecture
 
-## The grammar (from design/macos-surface.md, unchanged)
+One loop owns the cache and the emits (fold the approval tick into the
+watcher loop — its `recv_timeout` is already the right shape):
 
-`status` → the board · `<letter>` → approve that pending request ·
-`N: <text>` → prompt session N · `nudge N` → send "continue" to session N ·
-anything else → one-line help. Case-insensitive, forgiving whitespace.
-Deny stays what it already is: `N: <guidance>` at a session with a pending
-approval denies with that guidance (same rule as the desktop prompt bar).
-
-## Stable ids (the design change — spec in design/remote.md §stable ids)
-
-Today session numbers are sidebar positions, resorted by mtime on every
-update. Over an async channel, `3: yes go ahead` can hit the wrong agent
-because the board moved after you read it. Change:
-
-- The registry assigns each session a **stable number on first sight**
-  (monotonic, never reused for the process lifetime). Wire gains `n`.
-- The sidebar still sorts by mtime, but each row's keycap shows its stable
-  `n`, and digit keys select by stable number — not by position. With >9
-  sessions, numbers still display; digits cover 1–9 (j/k and ⌘K reach the
-  rest).
-- Approval **letters** (A, B, …) are assigned on detection, stable while
-  pending, never reused in-process, and can never collide with numbers
-  (letters vs digits — enforce by construction, add a test).
-- DECISION latitude: if stable-number keycaps read badly in the sidebar,
-  propose an alternative presentation in Evidence — but the wire/grammar
-  semantics (stable `n`, stable letters) are non-negotiable.
-
-## Steps
-
-1. `src-tauri/src/grammar.rs`: a pure parser (`&str → Command` enum) and an
-   executor that routes through the EXISTING handlers — `approve_session`,
-   `deny_session`, `send_prompt` — no second code path. `status` formatter:
-   `● 2 working · ● 1 done · ● 1 needs you` + one line per red
-   (`A · 3 · <title> — wants: <command>`). Unit tests: every grammar arm,
-   unknown input → help text, the letter/number non-collision property,
-   formatter snapshot.
-2. Stable ids in the registry/state layer: numbers keyed by sid, letters
-   keyed by approval identity (opencode request id / tmux fingerprint).
-   Survive snapshot churn; process-lifetime only (no persistence needed).
-3. Window close ≠ quit: intercept `CloseRequested` → hide the window; the
-   backend (watcher, tick, yolo) keeps running. ⌘Q / dock quit remain real
-   exits. On real exit, owned tmux sessions deliberately survive — log a
-   line naming any still `working`.
-4. A proof harness so the grammar is exercisable before any transport
-   exists: `hvscan cmd "<text>"` subcommand (preferred — headless,
-   scriptable) or a temporary tauri command. `// DECISION:` the choice.
+- **fs event (debounced, existing)** → rescan only the changed harness
+  into the by_harness cache → snapshot.
+- **2s tick** → NO adapter scans. Re-finalize cached sessions (recompute
+  state/age from cached mtime + last_role — this flips working→done) +
+  approval detection (capture-pane for owned; opencode `GET /permission`
+  with cwds taken from the cache, not a fresh scan) → emit only if the
+  wire snapshot actually changed.
+- Single emitter thread → the watcher/poller snapshot race disappears
+  (no sequence numbers needed).
 
 ## Definition of done
 
-1. Grammar unit tests green (arms, collision property, formatter).
-2. `hvscan cmd "status"` prints the live board. `hvscan cmd "3: say hi"`
-   lands in a real owned session (transcript proof). `hvscan cmd "a"`
-   approves a real pending opencode permission (use the /tmp trigger
-   config from tasks/M3.md Evidence).
-3. Close the main window: the app keeps running; a permission request
-   raised while the window is closed is still detected (log proof);
-   reopening from the dock shows the window with live state.
-4. Sidebar shows stable numbers; when a session finishes and the list
-   re-sorts, no other session is renumbered; digit keys follow the stable
-   numbers.
-5. `python3 spike/compare.py` OK · `bunx tsc --noEmit` · `cargo test --lib`
-   · `npm run tauri dev` boots.
+1. Instrument scans (debug log `[scan] harness=<h> reason=<fs|tick|startup>`).
+   With the app open and no session activity for 60s: zero adapter scans
+   after startup. (Health probe and owned-pane captures are allowed.)
+2. No regression on liveness: a real claude session's dot goes yellow
+   within 2s of it starting work, and green within ~2s after `ACTIVE_S`
+   idle elapses.
+3. Approvals still work end-to-end: opencode red row + Tab approve
+   (the /tmp trigger config from tasks/M3.md Evidence), claude fixture
+   tests green.
+4. Degrade to stale, not to zero: when `state.vscdb` (or `opencode.db`)
+   reads fail — torn WAL, "database disk image is malformed" — keep the
+   last good sessions for that harness and log once. The sidebar must not
+   drop rows on a transient read error. Re-read on the next fs event.
+5. Lock hygiene on the loop path: single writer for the cache; replace the
+   scattered `.lock().unwrap()` chains with a small poisoning-tolerant
+   helper or consolidate under one state lock. New deps only with a
+   `// DECISION:` note (parking_lot acceptable).
+6. `python3 spike/compare.py` OK · `bunx tsc --noEmit` · `cargo test --lib`
+   · `npm run tauri dev` boots · `hvscan --watch` still works.
 
 ## Scope fence
 
-- No HTTP server, no tailscale, no chat.db, no tray icon, no global
-  shortcut, no notifications, no power assertion (M8a takes keep-awake).
-- Adapters untouched.
+- Adapter parsing and `Adapter::scan` signatures untouched (compare.py).
+- No UI changes, no new features, no approval-logic changes beyond where
+  detection gets its inputs from.
 
 ## When done
 
-1. Evidence: test output, `hvscan cmd` transcripts, the window-closed
-   detection proof, a before/after of the stable-number sidebar.
-2. Tick M7g in PLAN.md.
-3. Refresh `tasks/CURRENT.md` with `tasks/M8a.md` (its gate now points at
-   M7g).
-4. Commit: `M7g: shared command grammar, stable session ids, backend survives window close`.
+1. Evidence: the scan-count log over 60s idle, the working→done timing
+   note, the degradation proof (real or simulated torn read).
+2. Tick H2 in PLAN.md.
+3. Refresh `tasks/CURRENT.md` with `tasks/H3.md`.
+4. Commit: `H2: event-driven scans — 2s tick re-finalizes cache, no full rescans`.
 
 ## Evidence
 
-(builder fills this in — an empty Evidence section means the milestone is not done)
+### Idle scan count (65s `hvscan --watch`, 2026-07-10)
+
+```
+[scan] harness=claude code reason=startup
+[scan] harness=codex reason=startup
+[scan] harness=cursor reason=startup
+[scan] harness=opencode reason=startup
+[scan] harness=cursor reason=fs
+```
+
+Breakdown: **4 startup · 1 ambient cursor fs · 0 tick**. No `reason=tick`
+adapter scans (tick only re-finalizes). The single `cursor reason=fs` was
+Cursor IDE writing `state.vscdb` during the window — not the 2s poller.
+Tick-driven full rescans are gone.
+
+### working→done timing
+
+`ACTIVE_S = 15s`; tick interval = 2s. Unit test
+`registry::tests::refinalize_flips_working_to_done` asserts a session with
+`mtime = now - (ACTIVE_S + 1)` flips `working → done` on `refinalize`
+without disk I/O. Dot goes green within one tick (~2s) after idle elapses.
+Fs events still rescan the changed harness so a fresh write turns the dot
+yellow within the 500ms debounce + next emit.
+
+### Degradation (simulated torn read)
+
+`registry::tests::degrade_keeps_last_good_on_scan_err`: cache holds a
+cursor row; a simulated `Err("database disk image is malformed")` does
+not replace the cache; `merge_cache` still returns the last-good session.
+Watcher path: on `scan_harness` Err, keep `by_harness[h]`, log once via
+`logged_degraded`, retry on the next fs event.
+
+### Approvals / fixtures
+
+- `cargo test --lib`: claude pane fixtures green (`parses_claude_bash_permission`,
+  `parses_claude_edit_permission`, `no_false_positive_on_normal_pane`).
+- Opencode cwd seeding for `GET /permission` now reads the watcher cache /
+  snapshot / pending — no per-tick `scan_sessions(..., Opencode)`.
+
+### Lock hygiene
+
+`events::lock` — poisoning-tolerant `Mutex` helper
+(`unwrap_or_else(|p| p.into_inner())`). DECISION: small helper over adding
+a direct `parking_lot` dep. Watcher loop is the sole writer of the
+per-harness session cache.
+
+### Verification
+
+- `python3 spike/compare.py` → OK (24 sessions, 0 lenient diffs)
+- `bunx tsc --noEmit` → OK
+- `cargo test --lib` → 15 passed, 3 ignored
+- `bunx tauri dev` → vite ready, `Running target/debug/hypervisor`
+- `hvscan --watch` → runs; prints state transitions on tick re-finalize
