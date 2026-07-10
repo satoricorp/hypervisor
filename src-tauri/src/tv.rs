@@ -9,6 +9,61 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "tv";
 
+/// Runs on every navigation in the tv window. On watch pages, flattens
+/// YouTube into a bare player that fills the window (native controls appear
+/// on hover); browse pages stay normal so you can pick a video. SPA-aware
+/// via yt-navigate-finish. Best-effort: DOM drift degrades to plain youtube.
+const TV_INIT_JS: &str = r#"
+(() => {
+  if (window.__hvtv) return; window.__hvtv = true;
+  const FILL = `
+    ytd-masthead, #masthead-container { display: none !important; }
+    html, body { overflow: hidden !important; background: #000 !important; }
+    #movie_player {
+      position: fixed !important; inset: 0 !important;
+      width: 100vw !important; height: 100vh !important;
+      z-index: 999999 !important; background: #000 !important;
+    }
+    #movie_player video { object-fit: contain !important; }
+  `;
+  const style = document.createElement('style');
+  style.id = 'hv-tv-style';
+  const apply = () => {
+    style.textContent = location.pathname === '/watch' ? FILL : '';
+    // keep the video sized to the window in fill mode
+    if (location.pathname === '/watch') {
+      const v = document.querySelector('#movie_player video');
+      if (v) { v.style.width = '100vw'; v.style.height = '100vh'; v.style.left = '0'; v.style.top = '0'; }
+      window.dispatchEvent(new Event('resize'));
+    }
+  };
+  const attach = setInterval(() => {
+    if (document.head) {
+      document.head.appendChild(style);
+      apply();
+      clearInterval(attach);
+    }
+  }, 120);
+  document.addEventListener('yt-navigate-finish', () => setTimeout(apply, 250));
+  window.addEventListener('resize', () => setTimeout(apply, 100));
+})();
+"#;
+
+/// macOS: chromeless windows aren't draggable by default — flip the native
+/// NSWindow flag so the whole video surface drags the window (real PiP feel).
+#[cfg(target_os = "macos")]
+fn make_drag_anywhere(w: &tauri::WebviewWindow) {
+    use objc::{msg_send, sel, sel_impl};
+    if let Ok(ns) = w.ns_window() {
+        let ns = ns as *mut objc::runtime::Object;
+        unsafe {
+            let _: () = msg_send![ns, setMovableByWindowBackground: true];
+        }
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn make_drag_anywhere(_w: &tauri::WebviewWindow) {}
+
 /// Open the PiP player if closed, close it if open. Returns the new state.
 #[tauri::command]
 pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
@@ -16,7 +71,7 @@ pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
         w.close().map_err(|e| e.to_string())?;
         return Ok(false);
     }
-    WebviewWindowBuilder::new(
+    let w = WebviewWindowBuilder::new(
         &app,
         LABEL,
         WebviewUrl::External(
@@ -29,8 +84,10 @@ pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
     .inner_size(440.0, 270.0)
     .decorations(false)
     .always_on_top(true)
+    .initialization_script(TV_INIT_JS)
     .build()
     .map_err(|e| e.to_string())?;
+    make_drag_anywhere(&w);
     Ok(true)
 }
 
