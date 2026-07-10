@@ -19,10 +19,12 @@ export interface SessionWire {
   src: string;
   sidechains: number;
   control: string;
+  approval?: string | null;
 }
 
 function mapState(state: string): SessionState {
   if (state === "working") return "working";
+  if (state === "needs_you") return "input";
   if (state === "stalled") return "error";
   return "done";
 }
@@ -58,12 +60,14 @@ export function wireToSession(w: SessionWire): Session {
     sid: w.sid,
     age: w.age,
     sidechains: w.sidechains || 0,
+    approval: w.approval ?? null,
     subs: [],
     log,
   };
 
-  if (state === "working" && w.activity) {
-    // activity is e.g. `Edit(src/auth/middleware.ts)` — split for now-block
+  if (state === "input" && w.approval) {
+    // now-block uses approval
+  } else if (state === "working" && w.activity) {
     const m = w.activity.match(/^([A-Za-z]+)\((.*)\)$/);
     if (m) {
       s.tool = m[1];

@@ -3,9 +3,10 @@
 //! // DECISION: port 14096 (not 4096) so a user-started serve can't collide.
 //! Binds 127.0.0.1 only — serve prints that it is unsecured without a password.
 //!
-//! M3 material (recorded, not built): GET /permission,
-//! POST /permission/{requestID}/reply, GET /event (SSE).
+//! Permissions (M3): GET /permission, POST /permission/{requestID}/reply.
+//! SSE /event is optional polish — 2s poll passes DoD.
 
+use serde::Deserialize;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -146,6 +147,103 @@ pub fn prompt_async(sid: &str, cwd: &str, text: &str) -> Result<(), String> {
     if !(200..300).contains(&status) {
         let msg = resp.into_string().unwrap_or_default();
         return Err(format!("opencode prompt_async HTTP {status}: {msg}"));
+    }
+    Ok(())
+}
+
+/// Pending permission from GET /permission (OpenAPI PermissionRequest).
+#[derive(Deserialize, Clone, Debug)]
+pub struct PermissionRequest {
+    pub id: String,
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
+    pub permission: String,
+    #[serde(default)]
+    pub patterns: Vec<String>,
+}
+
+/// List pending permissions. Bare GET returns [] unless scoped by directory
+/// (verified against live serve) — pass known opencode session cwds.
+pub fn list_permissions() -> Result<Vec<PermissionRequest>, String> {
+    list_permissions_for(None)
+}
+
+pub fn list_permissions_for(directories: Option<&[String]>) -> Result<Vec<PermissionRequest>, String> {
+    if !healthy() {
+        return Ok(Vec::new());
+    }
+    let mut dirs: Vec<String> = match directories {
+        Some(d) if !d.is_empty() => d.to_vec(),
+        _ => vec![String::new()],
+    };
+    // Always try bare (docs say "all sessions") plus each cwd.
+    if !dirs.iter().any(|d| d.is_empty()) {
+        dirs.insert(0, String::new());
+    }
+    let mut by_id: std::collections::HashMap<String, PermissionRequest> =
+        std::collections::HashMap::new();
+    for dir in dirs {
+        let url = if dir.is_empty() {
+            format!("{BASE}/permission")
+        } else {
+            format!("{BASE}/permission?directory={}", percent_encode(&dir))
+        };
+        let resp = match ureq::get(&url).timeout(Duration::from_secs(3)).call() {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if resp.status() != 200 {
+            continue;
+        }
+        let Ok(body) = resp.into_string() else { continue };
+        let Ok(reqs) = serde_json::from_str::<Vec<PermissionRequest>>(&body) else {
+            continue;
+        };
+        for req in reqs {
+            by_id.insert(req.id.clone(), req);
+        }
+    }
+    Ok(by_id.into_values().collect())
+}
+
+/// POST /permission/{requestID}/reply — body `{"reply":…,"message"?}`.
+/// `directory` is required by the live server to locate the request.
+pub fn permission_reply(
+    request_id: &str,
+    reply: &str,
+    message: Option<&str>,
+) -> Result<(), String> {
+    permission_reply_in(request_id, reply, message, None)
+}
+
+pub fn permission_reply_in(
+    request_id: &str,
+    reply: &str,
+    message: Option<&str>,
+    directory: Option<&str>,
+) -> Result<(), String> {
+    ensure_serve()?;
+    let url = match directory {
+        Some(d) if !d.is_empty() => format!(
+            "{BASE}/permission/{}/reply?directory={}",
+            percent_encode(request_id),
+            percent_encode(d)
+        ),
+        _ => format!("{BASE}/permission/{}/reply", percent_encode(request_id)),
+    };
+    let mut body = serde_json::json!({ "reply": reply });
+    if let Some(m) = message {
+        body["message"] = serde_json::Value::String(m.to_string());
+    }
+    let resp = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .timeout(Duration::from_secs(10))
+        .send_string(&body.to_string())
+        .map_err(|e| format!("opencode permission reply failed: {e}"))?;
+    let status = resp.status();
+    if !(200..300).contains(&status) {
+        let msg = resp.into_string().unwrap_or_default();
+        return Err(format!("opencode permission reply HTTP {status}: {msg}"));
     }
     Ok(())
 }

@@ -11,7 +11,17 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { MODELS, PAL, ROOT_CMDS, TARGETS } from "./menuData";
 import { ensureLog } from "./constants";
-import { adoptSession, listSessions, sendPrompt, spawnSession, waitForOwnedSid } from "./api";
+import {
+  adoptSession,
+  approveSession,
+  denySession,
+  getYolo,
+  listSessions,
+  sendPrompt,
+  setYolo,
+  spawnSession,
+  waitForOwnedSid,
+} from "./api";
 import { wireToSession, type SessionWire } from "./wire";
 import type {
   AppState,
@@ -101,6 +111,7 @@ export type Action =
   | { type: "SET_PAL_FILTER"; value: string }
   | { type: "PAL_ACTIVE"; active: number }
   | { type: "SET_YOLO"; on: boolean }
+  | { type: "SET_YOLO_SILENT"; on: boolean }
   | { type: "SET_SESSIONS"; sessions: Session[] }
   | { type: "APPROVE_SEL" }
   | { type: "CHOOSE_MENU" }
@@ -259,12 +270,15 @@ export function reducer(state: AppState, action: Action): AppState {
         palette: { ...state.palette, active: action.active },
       };
     case "SET_YOLO":
+      // Backend sync happens in Statusbar / doSetYolo; reducer updates UI.
       return toast(
         { ...state, yolo: action.on },
         action.on
           ? "yolo on — auto-approving everything. godspeed."
           : "yolo off — approvals wait for ⇥ again",
       );
+    case "SET_YOLO_SILENT":
+      return { ...state, yolo: action.on };
     case "SET_SESSIONS": {
       const sessions = action.sessions;
       let sel = state.sel;
@@ -289,7 +303,8 @@ export function reducer(state: AppState, action: Action): AppState {
         s.log!.push({ k: "you", t: action.text });
       });
     case "APPROVE_SEL":
-      return toast(state, "approvals land in M3");
+      // Side-effect in doApprove; reducer is a no-op placeholder.
+      return state;
     case "REQUEST_SPAWN":
       // Handled in StoreProvider effect; reducer just closes menu.
       return {
@@ -479,11 +494,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     for (const s of sessions) {
       const sid = s.sid || s.title;
       next[sid] = s.state;
-      if (s.state === "error" && prev[sid] && prev[sid] !== "error") {
+      if (
+        (s.state === "error" || s.state === "input") &&
+        prev[sid] &&
+        prev[sid] !== "error" &&
+        prev[sid] !== "input"
+      ) {
+        const detail = s.approval
+          ? `⏸ wants: ${s.approval}`
+          : "stalled — no output; needs a look";
         import("@tauri-apps/api/core").then(({ invoke }) =>
           invoke("tv_interrupt", {
             title: s.title,
-            detail: "stalled — no output; needs a look",
+            detail,
           }).catch(() => {}),
         );
       }
@@ -495,14 +518,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
+    let unlistenToast: (() => void) | undefined;
+
     (async () => {
       try {
-        const wire = await listSessions();
+        const [wire, yolo] = await Promise.all([listSessions(), getYolo()]);
         if (!cancelled) {
           dispatch({
             type: "SET_SESSIONS",
             sessions: wire.map(wireToSession),
           });
+          if (yolo) dispatch({ type: "SET_YOLO_SILENT", on: true });
         }
       } catch (e) {
         if (!cancelled) {
@@ -521,11 +547,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         console.error("listen sessions:update failed", e);
       }
+      try {
+        unlistenToast = await listen<{ html: string }>("toast", (ev) => {
+          if (ev.payload?.html) {
+            dispatch({ type: "TOAST", html: ev.payload.html });
+          }
+        });
+      } catch (e) {
+        console.error("listen toast failed", e);
+      }
     })();
 
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenToast?.();
     };
   }, []);
 
@@ -564,6 +600,44 @@ export function useStore() {
   return ctx;
 }
 
+/** Tab → approve selected session's pending permission. */
+export async function doApprove(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const s = state.sessions[state.sel];
+  if (!s?.sid) {
+    dispatch({ type: "TOAST", html: "nothing pending approval on this session" });
+    return;
+  }
+  if (!s.approval) {
+    dispatch({ type: "TOAST", html: "nothing pending approval on this session" });
+    return;
+  }
+  try {
+    await approveSession(s.sid);
+    dispatch({
+      type: "TOAST",
+      html: `approved <b>${esc(s.approval)}</b>`,
+    });
+  } catch (e) {
+    dispatch({ type: "TOAST", html: esc(String(e)) });
+  }
+}
+
+/** Statusbar yolo toggle — sync backend + UI. */
+export async function doSetYolo(
+  on: boolean,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  try {
+    await setYolo(on);
+    dispatch({ type: "SET_YOLO", on });
+  } catch (e) {
+    dispatch({ type: "TOAST", html: esc(String(e)) });
+  }
+}
+
 /** Side-effectful send — called from keyboard Enter. */
 export async function doSend(
   state: AppState,
@@ -591,6 +665,23 @@ export async function doSend(
 
   const text = state.prompt.trim();
   if (!text) return;
+
+  // Typing at a pending approval = deny with guidance.
+  if (state.subSel < 0 && s.approval && s.sid) {
+    dispatch({ type: "CLEAR_PROMPT" });
+    try {
+      await denySession(s.sid, text);
+      dispatch({
+        type: "TOAST",
+        html: `denied with guidance — <b>${esc(text)}</b>`,
+      });
+      dispatch({ type: "OPTIMISTIC_SENT", i: state.sel, text });
+    } catch (e) {
+      dispatch({ type: "TOAST", html: esc(String(e)) });
+    }
+    return;
+  }
+
   dispatch({ type: "CLEAR_PROMPT" });
 
   if (!s.sid) {

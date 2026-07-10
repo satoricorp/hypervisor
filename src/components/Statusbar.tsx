@@ -1,4 +1,4 @@
-import { useStore } from "../store";
+import { doSetYolo, useStore } from "../store";
 
 export function Statusbar() {
   const { state, dispatch } = useStore();
@@ -24,7 +24,7 @@ export function Statusbar() {
         id="yolo"
         type="button"
         title="auto-approve every permission request"
-        onClick={() => dispatch({ type: "SET_YOLO", on: !state.yolo })}
+        onClick={() => void doSetYolo(!state.yolo, dispatch)}
       >
         yolo <i>{state.yolo ? "on" : "off"}</i>
       </button>

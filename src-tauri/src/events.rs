@@ -1,6 +1,7 @@
-//! Tauri commands + session event stream for M2.
+//! Tauri commands + session event stream for M2/M3.
 
 use crate::adapters::Session;
+use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::{owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions};
 use serde::Serialize;
@@ -13,6 +14,7 @@ use tauri::{AppHandle, Emitter, State};
 
 const MAX_AGE_HOURS: f64 = 48.0;
 const LIMIT: usize = 8;
+const APPROVAL_POLL_MS: u64 = 2000;
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -33,6 +35,7 @@ pub struct SessionWire {
     pub src: String,
     pub sidechains: u32,
     pub control: String,
+    pub approval: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +53,14 @@ pub struct AppState {
     pub owned_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
     pub pending: Mutex<HashMap<String, PendingOwned>>,
+    /// sid → pending permission (M3).
+    pub approvals: Mutex<HashMap<String, PendingApproval>>,
+    /// Auto-approve every permission request (lives in backend so it works
+    /// with the window closed).
+    pub yolo: Mutex<bool>,
+    /// Keys already auto-approved this yolo session (request id / fingerprint)
+    /// so we don't re-toast or hammer.
+    pub yolo_seen: Mutex<std::collections::HashSet<String>>,
 }
 
 fn now_secs() -> f64 {
@@ -80,26 +91,39 @@ fn control_for(sid: &str, harness: &str, owned: &HashMap<String, String>) -> Str
     }
 }
 
-fn to_wire(sessions: &[Session], owned: &HashMap<String, String>) -> Vec<SessionWire> {
+fn to_wire(
+    sessions: &[Session],
+    owned: &HashMap<String, String>,
+    approvals: &HashMap<String, PendingApproval>,
+) -> Vec<SessionWire> {
     sessions
         .iter()
-        .map(|s| SessionWire {
-            harness: s.harness.clone(),
-            sid: s.sid.clone(),
-            title: s.title.clone(),
-            model: s.model.clone(),
-            cwd: s.cwd.clone(),
-            branch: s.branch.clone(),
-            last_user: s.last_user.clone(),
-            last_assistant: s.last_assistant.clone(),
-            activity: s.activity.clone(),
-            mtime: s.mtime,
-            state: s.state.clone(),
-            age: s.age.clone(),
-            repo: s.repo.clone(),
-            src: s.src.clone(),
-            sidechains: s.sidechains,
-            control: control_for(&s.sid, &s.harness, owned),
+        .map(|s| {
+            let approval = approvals.get(&s.sid).map(|a| a.text.clone());
+            let state = if approval.is_some() {
+                "needs_you".into()
+            } else {
+                s.state.clone()
+            };
+            SessionWire {
+                harness: s.harness.clone(),
+                sid: s.sid.clone(),
+                title: s.title.clone(),
+                model: s.model.clone(),
+                cwd: s.cwd.clone(),
+                branch: s.branch.clone(),
+                last_user: s.last_user.clone(),
+                last_assistant: s.last_assistant.clone(),
+                activity: s.activity.clone(),
+                mtime: s.mtime,
+                state,
+                age: s.age.clone(),
+                repo: s.repo.clone(),
+                src: s.src.clone(),
+                sidechains: s.sidechains,
+                control: control_for(&s.sid, &s.harness, owned),
+                approval,
+            }
         })
         .collect()
 }
@@ -108,6 +132,7 @@ fn merge_pending(
     mut wire: Vec<SessionWire>,
     owned: &HashMap<String, String>,
     pending: &HashMap<String, PendingOwned>,
+    approvals: &HashMap<String, PendingApproval>,
 ) -> Vec<SessionWire> {
     let seen: std::collections::HashSet<_> = wire.iter().map(|s| s.sid.clone()).collect();
     for (sid, p) in pending {
@@ -117,6 +142,12 @@ fn merge_pending(
         if !owned.contains_key(sid) {
             continue;
         }
+        let approval = approvals.get(sid).map(|a| a.text.clone());
+        let state = if approval.is_some() {
+            "needs_you".into()
+        } else {
+            "done".into()
+        };
         wire.insert(
             0,
             SessionWire {
@@ -130,39 +161,172 @@ fn merge_pending(
                 last_assistant: String::new(),
                 activity: String::new(),
                 mtime: p.spawn_time,
-                state: "done".into(),
+                state,
                 age: "now".into(),
                 repo: repo_of(&p.cwd),
                 src: String::new(),
                 sidechains: 0,
                 control: "tmux".into(),
+                approval,
             },
         );
     }
     wire
 }
 
-pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
+fn apply_approvals_to_snapshot(
+    state: &AppState,
+    sessions: Option<Vec<Session>>,
+) -> Vec<SessionWire> {
     let owned = state.owned.lock().unwrap().clone();
-    let mut pending = state.pending.lock().unwrap();
+    let pending = state.pending.lock().unwrap().clone();
+    let approvals = state.approvals.lock().unwrap().clone();
+    let sessions = sessions.unwrap_or_else(|| scan_sessions(MAX_AGE_HOURS, LIMIT, None));
     // Drop pending entries once adapters have the real row.
-    pending.retain(|sid, _| !sessions.iter().any(|s| &s.sid == sid));
-    let wire = merge_pending(to_wire(&sessions, &owned), &owned, &pending);
-    drop(pending);
+    {
+        let mut p = state.pending.lock().unwrap();
+        p.retain(|sid, _| !sessions.iter().any(|s| &s.sid == sid));
+    }
+    merge_pending(to_wire(&sessions, &owned, &approvals), &owned, &pending, &approvals)
+}
+
+pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
+    let wire = apply_approvals_to_snapshot(state, Some(sessions));
     *state.snapshot.lock().unwrap() = wire.clone();
     let _ = app.emit("sessions:update", &wire);
 }
 
+fn emit_current(app: &AppHandle, state: &AppState) {
+    let wire = apply_approvals_to_snapshot(state, None);
+    *state.snapshot.lock().unwrap() = wire.clone();
+    let _ = app.emit("sessions:update", &wire);
+}
+
+fn refresh_approvals(app: &AppHandle, state: &AppState) {
+    let owned = state.owned.lock().unwrap().clone();
+    let snap = state.snapshot.lock().unwrap().clone();
+    let prev = state.approvals.lock().unwrap().clone();
+
+    let mut harness_by_sid = HashMap::new();
+    let mut state_by_sid = HashMap::new();
+    let mut cwd_by_sid = HashMap::new();
+    for s in &snap {
+        harness_by_sid.insert(s.sid.clone(), s.harness.clone());
+        state_by_sid.insert(s.sid.clone(), s.state.clone());
+        if s.harness == "opencode" && !s.cwd.is_empty() {
+            cwd_by_sid.insert(s.sid.clone(), s.cwd.clone());
+        }
+    }
+    // Also seed harness from pending owned placeholders.
+    {
+        let pending = state.pending.lock().unwrap();
+        for (sid, p) in pending.iter() {
+            harness_by_sid
+                .entry(sid.clone())
+                .or_insert_with(|| p.harness.clone());
+            state_by_sid
+                .entry(sid.clone())
+                .or_insert_with(|| "working".into());
+            if p.harness == "opencode" && !p.cwd.is_empty() {
+                cwd_by_sid.entry(sid.clone()).or_insert_with(|| p.cwd.clone());
+            }
+        }
+    }
+
+    // Seed opencode cwds from a fresh harness scan (sidebar limit may omit some).
+    for s in scan_sessions(MAX_AGE_HOURS, 64, Some(crate::registry::Harness::Opencode)) {
+        if !s.cwd.is_empty() {
+            cwd_by_sid.entry(s.sid.clone()).or_insert(s.cwd);
+        }
+    }
+
+    let mut next: HashMap<String, PendingApproval> = HashMap::new();
+    approvals::detect_opencode(&cwd_by_sid, &mut next);
+    approvals::detect_tmux(&owned, &harness_by_sid, &state_by_sid, &prev, &mut next);
+
+    let yolo = *state.yolo.lock().unwrap();
+    let mut auto_toasts: Vec<(String, String)> = Vec::new();
+
+    if yolo {
+        let mut still = HashMap::new();
+        let mut seen = state.yolo_seen.lock().unwrap();
+        for (sid, pending) in next {
+            let key = match &pending.source {
+                approvals::ApprovalSource::Opencode { request_id, .. } => {
+                    format!("oc:{request_id}")
+                }
+                approvals::ApprovalSource::Tmux => {
+                    format!(
+                        "tmux:{sid}:{}",
+                        pending.fingerprint.as_deref().unwrap_or(&pending.text)
+                    )
+                }
+            };
+            if seen.contains(&key) {
+                // Already auto-approved — wait for detection to drop it.
+                continue;
+            }
+            let tmux_target = owned.get(&sid).map(|s| s.as_str());
+            match approvals::approve(&pending, tmux_target) {
+                Ok(()) => {
+                    seen.insert(key);
+                    auto_toasts.push((sid.clone(), pending.text.clone()));
+                }
+                Err(e) => {
+                    eprintln!("yolo approve failed for {sid}: {e}");
+                    still.insert(sid, pending);
+                }
+            }
+        }
+        drop(seen);
+        *state.approvals.lock().unwrap() = still;
+    } else {
+        state.yolo_seen.lock().unwrap().clear();
+        *state.approvals.lock().unwrap() = next;
+    }
+
+    emit_current(app, state);
+
+    for (sid, text) in auto_toasts {
+        let short = if sid.len() > 8 { &sid[..8] } else { &sid };
+        let html = format!(
+            "yolo approved <b>{}</b> · {}",
+            escape_html(short),
+            escape_html(&text)
+        );
+        let _ = app.emit("toast", &ToastEvent { html });
+    }
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 pub fn start_watcher(app: AppHandle, state: Arc<AppState>) {
-    thread::spawn(move || {
+    // FS watcher thread (existing).
+    {
         let handle = app.clone();
         let st = Arc::clone(&state);
-        if let Err(e) = watch_sessions(MAX_AGE_HOURS, LIMIT, move |sessions| {
-            emit_snapshot(&handle, &st, sessions);
-        }) {
-            eprintln!("session watcher failed: {e}");
-        }
-    });
+        thread::spawn(move || {
+            if let Err(e) = watch_sessions(MAX_AGE_HOURS, LIMIT, move |sessions| {
+                emit_snapshot(&handle, &st, sessions);
+            }) {
+                eprintln!("session watcher failed: {e}");
+            }
+        });
+    }
+    // Approval poller — every 2s (opencode GET /permission + tmux panes).
+    {
+        let handle = app.clone();
+        let st = Arc::clone(&state);
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_millis(APPROVAL_POLL_MS));
+            refresh_approvals(&handle, &st);
+        });
+    }
 }
 
 #[tauri::command]
@@ -172,10 +336,7 @@ pub fn list_sessions(state: State<'_, Arc<AppState>>) -> Vec<SessionWire> {
         return snap.clone();
     }
     drop(snap);
-    let owned = state.owned.lock().unwrap().clone();
-    let pending = state.pending.lock().unwrap().clone();
-    let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
-    let wire = merge_pending(to_wire(&sessions, &owned), &owned, &pending);
+    let wire = apply_approvals_to_snapshot(&state, None);
     *state.snapshot.lock().unwrap() = wire.clone();
     wire
 }
@@ -214,7 +375,6 @@ pub fn spawn_session(
                 spawn_time,
             },
         );
-        // Emit immediately so the sidebar shows the placeholder.
         let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
         emit_snapshot(&app, &state, sessions);
     }
@@ -227,7 +387,6 @@ pub fn spawn_session(
     let known_sid = spawned.sid.clone();
     thread::spawn(move || {
         if known_sid.is_some() {
-            // Poll until adapters see the transcript (after first prompt), or 60s.
             for _ in 0..120 {
                 thread::sleep(Duration::from_millis(500));
                 let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
@@ -278,7 +437,6 @@ pub fn send_prompt(
         }
     }
 
-    // Non-owned: opencode uses the api tier; everything else stays observe-only.
     let sess = {
         let snap = state.snapshot.lock().unwrap();
         snap.iter().find(|s| s.sid == sid).cloned()
@@ -287,8 +445,9 @@ pub fn send_prompt(
         Some(s) => s,
         None => {
             let owned = state.owned.lock().unwrap().clone();
+            let approvals = state.approvals.lock().unwrap().clone();
             let sessions = scan_sessions(MAX_AGE_HOURS, LIMIT, None);
-            to_wire(&sessions, &owned)
+            to_wire(&sessions, &owned, &approvals)
                 .into_iter()
                 .find(|s| s.sid == sid)
                 .ok_or_else(|| format!("session {sid} not found"))?
@@ -322,4 +481,57 @@ pub fn kill_session(
         .ok_or_else(|| "session is not owned by hypervisor tmux".to_string())?;
     drop(map);
     tmux::kill(&target)
+}
+
+#[tauri::command]
+pub fn approve_session(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+) -> Result<(), String> {
+    let pending = {
+        let map = state.approvals.lock().unwrap();
+        map.get(&sid)
+            .cloned()
+            .ok_or_else(|| "nothing pending approval on this session".to_string())?
+    };
+    let tmux_target = state.owned.lock().unwrap().get(&sid).cloned();
+    approvals::approve(&pending, tmux_target.as_deref())?;
+    state.approvals.lock().unwrap().remove(&sid);
+    emit_current(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn deny_session(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+    guidance: String,
+) -> Result<(), String> {
+    let pending = {
+        let map = state.approvals.lock().unwrap();
+        map.get(&sid)
+            .cloned()
+            .ok_or_else(|| "nothing pending approval on this session".to_string())?
+    };
+    let tmux_target = state.owned.lock().unwrap().get(&sid).cloned();
+    approvals::deny(&pending, &guidance, tmux_target.as_deref())?;
+    state.approvals.lock().unwrap().remove(&sid);
+    emit_current(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_yolo(state: State<'_, Arc<AppState>>, on: bool) -> Result<(), String> {
+    *state.yolo.lock().unwrap() = on;
+    if !on {
+        state.yolo_seen.lock().unwrap().clear();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_yolo(state: State<'_, Arc<AppState>>) -> bool {
+    *state.yolo.lock().unwrap()
 }

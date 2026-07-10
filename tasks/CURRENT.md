@@ -125,4 +125,86 @@ non-owned terminal sessions.
 
 ## Evidence
 
-(builder fills this in — an empty Evidence section means the milestone is not done)
+### opencode /doc schema (port 14096)
+
+`GET /permission` → `PermissionRequest[]`:
+`{id, sessionID, permission, patterns, metadata, always, tool?}`.
+
+`POST /permission/{requestID}/reply` body (required key is `reply`, NOT `response`):
+```json
+{"reply": "once" | "always" | "reject", "message"?: string}
+```
+
+**Live finding:** bare `GET /permission` returns `[]`; must pass
+`?directory=<session cwd>` (same for reply). Poller walks known opencode
+session cwds.
+
+**Trigger config that worked:** project `opencode.json` with
+`"permission": { "bash": "ask" }` under `/tmp/hv-m3-opencode-test`.
+
+**Approve proof:** `per_f4d0b088f0016eBnYv0fRCqeh4` / `bash hi.sh` →
+`{"reply":"once"}` → `opencode export` tool status `completed`, output `hello`.
+
+**Deny-with-guidance proof:** `{"reply":"reject","message":"use echo hello instead, no $$"}`
+→ tool error: `The user rejected permission… feedback: use echo hello instead, no $$`
+→ agent retried `echo hello` (native message field; no separate prompt_async).
+
+### Claude Code pane (tmux tier)
+
+**Live OAuth blocker:** `claude` TUI reports
+`Login expired · Please run /login` /
+`OAuth session expired and could not be refreshed`. DoD #1 live session
+could not be completed on this machine until `/login` is refreshed.
+
+**Empirical pattern sources (not guessed):**
+1. Claude Code v2.1.206 binary strings: `Do you want to proceed?`,
+   `Yes, and don't ask again for `, `No, and tell Claude what to do differently (esc)`.
+2. GH #11380 pane paste of the numbered options UI.
+3. Fixture pane in `tmux -L hypervisor` matching that layout (capture below).
+
+**Fixture pane capture:**
+```
+ Bash(scripts/build.sh)
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for bash scripts/build.sh commands in
+   3. No, and tell Claude what to do differently (esc)
+```
+
+**Parser:** `parse_claude_pane` → `Bash(scripts/build.sh)` (unit tests green).
+
+**send-keys:** approve = `1` then `Enter`; deny = `3` then `Enter`, then
+guidance via normal `tmux::send`. Verified fixture pane received `GOT:1`.
+
+### Codex
+
+**Left out (allowed by DoD #5):** Codex approval UI is a fullscreen overlay
+with keymap actions (`Approve the primary option`, `Decline and provide
+corrective guidance`) — no stable numbered `Do you want to proceed?` block
+in a live pane capture. `parse_codex_pane` returns `None`.
+`// DECISION:` documented in `approvals.rs`.
+
+### Yolo
+
+Backend `yolo` flag + poller auto-`approve`; frontend statusbar amber
+(`.yolobtn.on` → `--busy`); toast event `toast` on each auto-approval.
+
+### Verification
+
+- `python3 spike/compare.py` → OK (0 lenient diffs)
+- `bunx tsc --noEmit` → OK
+- `cargo test --lib` → 14 passed
+- `npm run tauri dev`: port 1420 already serving (existing vite); `cargo build` OK.
+  Fresh `tauri dev` failed only because 1420 was in use — app already boots.
+
+### DECISION comments
+
+- opencode permission poll scopes by session `directory` (live serve requires it).
+- Codex detection deferred — unreliable without live pane.
+- Claude patterns from binary + GH #11380 + fixture (OAuth blocked live DoD #1).
+
+### Next
+
+next task file needed (planner writes it)
+

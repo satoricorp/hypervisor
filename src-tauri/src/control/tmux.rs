@@ -130,6 +130,20 @@ pub fn send(target: &str, text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Send raw key names (e.g. `["1", "Enter"]`) — not literal `-l` mode.
+pub fn send_keys(target: &str, keys: &[&str]) -> Result<(), String> {
+    let mut args = vec!["send-keys", "-t", target];
+    args.extend_from_slice(keys);
+    tmux(&args)?;
+    Ok(())
+}
+
+/// Capture the last `lines` of a pane (`-S` is negative, e.g. -25).
+pub fn capture_pane(target: &str, lines: i32) -> Result<String, String> {
+    let start = lines.to_string();
+    tmux(&["capture-pane", "-p", "-t", target, "-S", &start])
+}
+
 pub fn kill(target: &str) -> Result<(), String> {
     tmux(&["kill-session", "-t", target])?;
     Ok(())

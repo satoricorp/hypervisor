@@ -1,4 +1,5 @@
 mod adapters;
+pub mod approvals;
 pub mod control;
 pub mod events;
 pub mod registry;
@@ -8,7 +9,11 @@ pub use adapters::{Adapter, Session};
 pub use registry::{scan_sessions, watch_sessions, watch_sessions_cli, Harness};
 
 use control::adopt::adopt_session;
-use events::{kill_session, list_sessions, send_prompt, spawn_session, start_watcher, AppState};
+use events::{
+    approve_session, deny_session, get_yolo, kill_session, list_sessions, send_prompt, set_yolo,
+    spawn_session, start_watcher, AppState,
+};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
@@ -28,7 +33,10 @@ pub fn run() {
                 snapshot: std::sync::Mutex::new(Vec::new()),
                 owned: std::sync::Mutex::new(owned_map),
                 owned_path: std::sync::Mutex::new(owned_path),
-                pending: std::sync::Mutex::new(std::collections::HashMap::new()),
+                pending: std::sync::Mutex::new(HashMap::new()),
+                approvals: std::sync::Mutex::new(HashMap::new()),
+                yolo: std::sync::Mutex::new(false),
+                yolo_seen: std::sync::Mutex::new(std::collections::HashSet::new()),
             });
             app.manage(Arc::clone(&state));
             start_watcher(app.handle().clone(), state);
@@ -40,6 +48,10 @@ pub fn run() {
             send_prompt,
             kill_session,
             adopt_session,
+            approve_session,
+            deny_session,
+            set_yolo,
+            get_yolo,
             tv::toggle_tv,
             tv::tv_interrupt
         ])

@@ -192,7 +192,7 @@ spike is their test oracle; UI second, binding them together in M2).
   endpoints via its `/doc` OpenAPI). AC: opencode sessions appear in the
   sidebar and accept prompts.
 
-- [ ] **M3 — approvals.** Detect pending permission requests (claude code: hook
+- [x] **M3 — approvals.** Detect pending permission requests (claude code: hook
 `PreToolUse`/permission events or transcript markers; codex: approval prompts in
 rollout). Tab approves, typing denies-with-guidance, yolo toggle.
 AC: a real `claude` session asking to run a command is approved from Hypervisor

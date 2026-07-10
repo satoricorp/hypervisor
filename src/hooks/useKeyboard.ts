@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { chooseMenu, doSend, useStore } from "../store";
+import { chooseMenu, doApprove, doSend, useStore } from "../store";
 
 /**
  * Global keydown — order matches design/mockup-b.html exactly:
@@ -111,7 +111,7 @@ export function useKeyboard() {
 
       if (e.key === "Tab") {
         e.preventDefault();
-        dispatch({ type: "APPROVE_SEL" });
+        void doApprove(state, dispatch);
         return;
       }
       if (/^[1-9]$/.test(e.key)) {

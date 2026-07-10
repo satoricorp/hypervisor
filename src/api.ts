@@ -25,6 +25,25 @@ export async function adoptSession(sid: string): Promise<string> {
   return invoke<string>("adopt_session", { sid });
 }
 
+export async function approveSession(sid: string): Promise<void> {
+  return invoke("approve_session", { sid });
+}
+
+export async function denySession(
+  sid: string,
+  guidance: string,
+): Promise<void> {
+  return invoke("deny_session", { sid, guidance });
+}
+
+export async function setYolo(on: boolean): Promise<void> {
+  return invoke("set_yolo", { on });
+}
+
+export async function getYolo(): Promise<boolean> {
+  return invoke<boolean>("get_yolo");
+}
+
 /** Wait up to 15s for a newly owned (tmux) sid that wasn't in `before`. */
 export async function waitForOwnedSid(
   before: Set<string>,
