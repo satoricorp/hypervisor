@@ -218,11 +218,24 @@ codex record usage; cursor best-effort), pricing table shipped + updatable,
 subscription-vs-API split, Access view (env/keychain detection, read-only).
 AC: ticker `$x.xx · x.xM TOK` bottom-left matches a hand-check of one day.
 
+- [ ] **TV (side-quest, any time after M3).** YouTube in a separate
+  `WebviewWindow` satellite that auto-pauses when a session needs you.
+  Spec: `design/tv.md`. Main-window CSP must not change.
+
 - [ ] **M7 — the macOS surface.** Menu bar item with aggregate dot, notification on
 done/needs_you with inline reply, dock badge = red count, global hotkey,
 launch-at-login, power assertion while sessions work.
 AC: with the window closed, a finishing session notifies; replying from the
 notification reaches the session.
+
+- [ ] **M8a — remote: tailnet mobile slice.** Triage page (needs-you stack +
+  approve/deny + prompt) served from the backend on 127.0.0.1, exposed only
+  via `tailscale serve`, authenticated by `Tailscale-User-Login`. Full spec:
+  `design/remote.md`. No remote yolo, ever.
+
+- [ ] **M8b — remote: iMessage bridge.** Text your Mac: `status`,
+  `3: <prompt>`; approvals over iMessage OFF by default. chat.db read-only
+  polling + AppleScript replies, self-chat only. Spec: `design/remote.md`.
 
 ## Risks
 

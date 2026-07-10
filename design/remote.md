@@ -1,0 +1,103 @@
+# Remote — work with sessions from your phone
+
+Two channels, shipped as two milestones. Both exist so Joe can triage agents
+away from the desk: see what needs him, approve/deny, and send prompts.
+
+**Threat model first:** whoever controls a remote channel controls approvals —
+i.e. arbitrary command execution on the Mac. Every design choice below follows
+from that.
+
+Mockup: `design/mockup-remote.html` (left phone = M8a web slice, right phone =
+M8b iMessage).
+
+## M8a — Tailscale mobile slice (the backbone)
+
+The trusted channel. Full remote control, including approvals.
+
+### Architecture
+
+- Tiny HTTP server inside the Tauri backend (axum or tiny_http), bound to
+  **127.0.0.1** only. Exposure happens exclusively via `tailscale serve`
+  (user runs it once; Settings shows the command + status). No listening on
+  0.0.0.0, no port forwarding, no Funnel.
+- Auth: `tailscale serve` injects `Tailscale-User-Login` on tailnet-internal
+  requests. The server verifies it equals the configured login (detected via
+  `tailscale status --json` at setup). Requests without the header (i.e. not
+  proxied by tailscale) are rejected — belt for the suspenders.
+- Endpoints (all JSON, mirroring existing tauri commands):
+  - `GET  /api/sessions` — the same snapshot the desktop UI gets
+  - `GET  /api/events` — SSE re-broadcast of `sessions:update`
+  - `POST /api/approve {sid}` / `POST /api/deny {sid, guidance}`
+  - `POST /api/prompt {sid, text}` — routes through the same send path
+    (tmux/api tiers only; observe rows are read-only remotely — adoption
+    stays a desktop decision)
+- The mobile page: one static HTML file served from the same server. Same
+  design tokens as the app, but **a text interface, not a shrunken
+  dashboard** — phone UX is reading a feed and typing one line:
+  1. A single chronological feed: timestamped event lines (`● 2 done — …`),
+     red needs-you lines showing the exact command, your own commands echoed
+     `❯`-prefixed. Inline `[approve] [deny + guide]` buttons appear under
+     red lines as accelerators — they issue the same grammar commands.
+  2. One input at the bottom speaking **the same grammar as the iMessage
+     bridge**: `status` · `N: <prompt>` · `approve N` / `deny N <guidance>` ·
+     `nudge N`. One language, two transports — learn it once.
+  3. A row of tappable suggestions above the input (`status`, `approve 5`, …)
+     for zero-typing triage.
+
+### Rules
+
+- **No remote yolo.** The toggle simply isn't rendered remotely.
+- Every remote action produces a desktop toast + a line in the (M5) history
+  log: `approved via remote · joe@… · 14:02`.
+- If tailscale isn't running, Settings shows "remote: off (tailscale not
+  detected)" — the server never falls back to a broader bind.
+
+### AC sketch
+
+Phone on tailnet loads the page; a pending approval on the desktop appears on
+the phone within 2s; tapping Approve unblocks the real session; a prompt sent
+from the phone lands in a tmux-owned session; a device outside the tailnet
+gets connection refused; a curl without the identity header gets 403.
+
+## M8b — iMessage bridge (the native trick)
+
+Texting your Mac. Delightful, but Apple-fragile and identity-soft — so it is
+**read-mostly by default**.
+
+### Architecture
+
+- **Inbound:** poll `~/Library/Messages/chat.db` (sqlite, read-only
+  `immutable=1` — same technique as the Cursor adapter) every ~2s for new rows
+  in `message` joined to `handle`/`chat`. Only messages from the **self-chat**
+  (Messages "chat with yourself") are considered commands; sender allowlist =
+  own handles only. Requires Full Disk Access: onboarding checks and degrades
+  gracefully ("imessage bridge: needs Full Disk Access — off").
+- **Outbound:** AppleScript via `osascript`: send to the self-chat. Plain
+  text only, compact formatting (the dot board is unicode dots + counts).
+- **Command grammar** (forgiving, case-insensitive):
+  - `status` → `● 2 working · ● 3 done · ● 1 needs you` + one line per red
+  - `3: <text>` → prompt to session 3 (numbers match the desktop sidebar)
+  - `approve 5` / `deny 5 <guidance>` → **only if** approvals-over-imessage is
+    explicitly enabled in Settings (default OFF; the reply otherwise says
+    "approvals are disabled over imessage — use the tailnet page")
+  - `help` → the grammar
+- Unsolicited pushes (opt-in per event type): session done, session needs you,
+  session stalled. Batched — never more than one text per 30s.
+
+### Fragility ledger (accepted)
+
+chat.db schema is undocumented and shifts with macOS releases; AppleScript
+automation permission prompts on first send; FDA required. All wrapped
+best-effort like the Cursor adapter: failure = feature off, never a crash.
+
+### AC sketch
+
+Text `status` from the phone → reply within 5s matching the desktop board.
+Text `3: tighten the summary` → session 3 goes working, last-sent matches.
+`approve 5` with the toggle off → refusal text; with it on → approval lands.
+A text from a non-self handle is ignored (verified in Evidence).
+
+## Sequencing
+
+After M7 (menu bar + notifications) — M7 builds the "command from outside the
+window" plumbing both channels reuse. Order: M8a, then M8b.

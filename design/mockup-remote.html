@@ -1,0 +1,452 @@
+<meta charset="utf-8">
+<title>Hypervisor Remote — Design Mockup</title>
+<style>
+  /* Two phones: left = tailnet triage slice (hypervisor tokens),
+     right = iMessage bridge (deliberately iOS-native, NOT our tokens —
+     it renders in Apple's world). Dark-only, consistent with variant B. */
+  :root {
+    --desk: #050607; --bg: #0a0c0e; --surface: #10141a; --surface-2: #151a21;
+    --inset: #0c0f13; --border: #1f242b; --border-2: #2e3540;
+    --ink: #dee3e8; --ink-2: #8a93a0; --ink-3: #545e6b; --sel: #e9edf2;
+    --ok: #46d68c; --busy: #e2a33e; --err: #e5544b; --mint: #57e0c9;
+    --mono: "Berkeley Mono", "TX-02", ui-monospace, "SF Mono", Menlo, monospace;
+    --ios: -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    --r-chip: 2px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--desk); }
+  body {
+    margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink);
+    background: radial-gradient(1100px 500px at 50% -10%, #0b0e12, var(--desk) 60%);
+    min-height: 100vh; padding: 40px 16px 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { max-width: 1040px; margin: 0 auto; }
+  h1 {
+    font-size: 15px; font-weight: 700; letter-spacing: .14em; margin: 0 0 6px;
+    color: var(--sel); text-align: center;
+    font-family: "Xer0", var(--mono);
+  }
+  .sub { text-align: center; color: var(--ink-3); font-size: 11px; margin: 0 0 30px; }
+
+  .phones { display: flex; gap: 34px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
+  .phonewrap { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .phone {
+    width: 375px; height: 730px;
+    border-radius: 46px; padding: 10px;
+    background: #17181c;
+    border: 1px solid #2a2c33;
+    box-shadow: 0 0 0 1px #000, 0 30px 80px rgba(0,0,0,.6);
+    position: relative;
+  }
+  .screen {
+    width: 100%; height: 100%; border-radius: 37px; overflow: hidden;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .island {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    width: 108px; height: 26px; border-radius: 14px; background: #000; z-index: 5;
+  }
+  .caption { font-size: 10.5px; color: var(--ink-3); text-align: center; max-width: 360px; line-height: 1.6; }
+  .caption b { color: var(--ink-2); font-weight: 600; }
+
+  /* ————— left phone: tailnet slice ————— */
+  .hv { background: var(--bg); font-family: var(--mono); }
+  .hv-head {
+    padding: 46px 16px 10px; border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 7px; background: var(--inset);
+  }
+  .hv-brand { display: flex; align-items: baseline; gap: 8px; }
+  .hv-mark { font-family: "Xer0", var(--mono); font-weight: 700; font-size: 13px; letter-spacing: .14em; color: var(--sel); }
+  .hv-net { font-size: 9px; color: var(--mint); margin-left: auto; }
+  .hv-net::before { content: "⏻ "; }
+  .hv-sum { display: flex; gap: 12px; font-size: 10px; color: var(--ink-2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
+  .d-ok { background: var(--ok); } .d-busy { background: var(--busy); animation: pulse 1.5s infinite; }
+  .d-err { background: var(--err); animation: pulse 2.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .hv-sum span { display: inline-flex; align-items: center; gap: 5px; }
+
+  .hv-body { flex: 1; overflow-y: auto; padding: 12px 12px 8px; display: flex; flex-direction: column; gap: 8px; }
+  .hv-lbl { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 4px 2px 0; }
+
+  .needcard {
+    background: var(--surface); border: 1px solid rgba(229,84,75,.4);
+    border-left: 3px solid var(--err); border-radius: var(--r-chip);
+    padding: 10px 11px; display: flex; flex-direction: column; gap: 7px;
+  }
+  .needcard.resolved { border-color: var(--border); border-left-color: var(--busy); }
+  .needcard.done { border-left-color: var(--ok); }
+  .nc-title { font-size: 11.5px; font-weight: 600; display: flex; gap: 7px; align-items: center; }
+  .nc-title .num { color: var(--ink-3); font-weight: 400; }
+  .nc-cmd {
+    font-size: 10.5px; color: var(--err); background: var(--inset);
+    border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 6px 8px; word-break: break-all;
+  }
+  .nc-cmd.q { color: #5ea8ff; }
+  .nc-state { font-size: 10px; color: var(--ink-3); }
+  .nc-btns { display: flex; gap: 8px; }
+  .btn {
+    flex: 1; font: inherit; font-size: 11px; font-weight: 700;
+    padding: 8px 0; border-radius: var(--r-chip); cursor: pointer;
+    border: 1px solid var(--border-2); background: var(--surface-2); color: var(--ink);
+  }
+  .btn.primary { background: var(--sel); border-color: var(--sel); color: var(--bg); }
+  .btn:active { transform: translateY(1px); }
+
+  .sess {
+    border-radius: var(--r-chip); cursor: pointer;
+    border-left: 3px solid transparent;
+    background: var(--surface);
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  .sess.sel { border-left-color: var(--sel); background: var(--surface-2); }
+  .sess-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; }
+  .sess .num { font-size: 10px; color: var(--ink-3); width: 12px; text-align: right; }
+  .sess.sel .num { color: var(--sel); font-weight: 700; }
+  .sess .t { flex: 1; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess .m { font-size: 9px; color: var(--ink-3); }
+  .sess-detail {
+    border-top: 1px solid var(--border);
+    padding: 7px 10px 9px 31px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .sd-sent { font-size: 10px; color: var(--ink-3); line-height: 1.5; }
+  .sd-sent::before { content: "❯ "; color: var(--ink-3); }
+  .sd-live { font-size: 10.5px; color: var(--ink-2); line-height: 1.5; }
+  .sd-live.ok { color: var(--ok); }
+
+  .hv-prompt {
+    border-top: 1px solid var(--border); background: var(--inset);
+    padding: 9px 10px 26px; display: flex; gap: 8px; align-items: center;
+  }
+  .hv-target {
+    flex: none; display: flex; align-items: center; gap: 6px;
+    font-size: 10.5px; border: 1px solid var(--border-2); border-radius: var(--r-chip);
+    background: var(--surface); padding: 5px 9px;
+  }
+  .hv-prompt input {
+    flex: 1; font: inherit; font-size: 12px; color: var(--ink);
+    background: none; border: 0; outline: none; min-width: 40px; caret-color: var(--sel);
+  }
+  .hv-prompt input::placeholder { color: var(--ink-3); }
+  .hv-send { font: inherit; font-size: 14px; background: none; border: 0; color: var(--ink-2); cursor: pointer; padding: 2px 4px; }
+
+  .hv-toast {
+    position: absolute; left: 50%; transform: translateX(-50%) translateY(8px);
+    bottom: 86px; z-index: 6;
+    background: var(--surface-2); border: 1px solid var(--border-2); border-radius: var(--r-chip);
+    color: var(--ink); font-size: 10.5px; padding: 7px 11px;
+    opacity: 0; transition: .2s; pointer-events: none; max-width: 85%;
+  }
+  .hv-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ————— right phone: iMessage ————— */
+  .im { background: #000; font-family: var(--ios); }
+  .im-nav {
+    padding: 44px 14px 8px; background: rgba(22,22,24,.96);
+    border-bottom: .5px solid #2c2c2e;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .im-ava {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: linear-gradient(#2b323c, #171c23);
+    display: grid; place-items: center; position: relative;
+    font-family: "Xer0", var(--mono); font-size: 17px; color: #e9edf2; font-weight: 700;
+  }
+  .im-ava i {
+    position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px;
+    border-radius: 50%; background: #30d158; border: 2.5px solid #161618;
+  }
+  .im-name { font-size: 11.5px; color: #fff; }
+  .im-name span { color: #8e8e93; font-size: 10px; }
+  .im-body {
+    flex: 1; overflow-y: auto; padding: 12px 12px 6px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .stamp { text-align: center; color: #8e8e93; font-size: 10px; margin: 8px 0 6px; }
+  .bub {
+    max-width: 78%; padding: 7px 12px; border-radius: 18px;
+    font-size: 13.5px; line-height: 1.35; white-space: pre-wrap; word-break: break-word;
+  }
+  .them { align-self: flex-start; background: #26252a; color: #fff; border-bottom-left-radius: 5px; }
+  .me   { align-self: flex-end; background: #0a84ff; color: #fff; border-bottom-right-radius: 5px; }
+  .bub .mono { font-family: var(--mono); font-size: 11.5px; display: block; }
+  .typing { align-self: flex-start; background: #26252a; border-radius: 18px; padding: 10px 14px; display: none; }
+  .typing.on { display: flex; gap: 4px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: #8e8e93; animation: tp 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .18s; } .typing i:nth-child(3) { animation-delay: .36s; }
+  @keyframes tp { 0%,60%,100% { opacity: .35; } 30% { opacity: 1; } }
+
+  .im-input {
+    padding: 8px 12px 26px; display: flex; flex-direction: column; gap: 8px;
+    background: #000;
+  }
+  .chips { display: flex; gap: 7px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--ios); font-size: 12px; color: #0a84ff;
+    background: rgba(10,132,255,.12); border: 1px solid rgba(10,132,255,.35);
+    border-radius: 15px; padding: 5px 12px; cursor: pointer;
+  }
+  .chip:disabled { opacity: .35; cursor: default; }
+  .im-fakebar {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid #3a3a3c; border-radius: 18px; padding: 7px 12px;
+    color: #8e8e93; font-family: var(--ios); font-size: 13px;
+  }
+
+  /* notes */
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 36px; }
+  .note { border: 1px solid var(--border); border-radius: 3px; padding: 12px 14px; background: rgba(16,20,26,.5); }
+  .note h5 { margin: 0 0 7px; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+  .note p { margin: 0 0 4px; font-size: 10.5px; color: var(--ink-2); line-height: 1.55; }
+  .note b { color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="stage">
+  <h1>HYPERVISOR REMOTE</h1>
+  <p class="sub">two channels — the tailnet slice (full control, strong identity) and the iMessage bridge (read-mostly, delightful)</p>
+
+  <div class="phones">
+    <!-- ————— tailnet slice ————— -->
+    <div class="phonewrap">
+      <div class="phone"><div class="island"></div>
+        <div class="screen hv">
+          <div class="hv-head">
+            <div class="hv-brand">
+              <span class="hv-mark">HYPERVISOR</span>
+              <span class="hv-net">hypervisor.joe-tail.ts.net</span>
+            </div>
+            <div class="hv-sum">
+              <span><i class="dot d-busy"></i>2 working</span>
+              <span><i class="dot d-ok"></i>4 done</span>
+              <span id="redcount"><i class="dot d-err"></i>2 need you</span>
+            </div>
+          </div>
+
+          <div class="hv-body" id="hvbody">
+            <div class="hv-lbl">needs you</div>
+
+            <div class="needcard" id="card5">
+              <div class="nc-title"><i class="dot d-err"></i><span class="num">5</span> integration tests for billing webhooks</div>
+              <div class="nc-cmd">⏸ wants to run — Bash(stripe fixtures pull --api-version 2026-03 --write test/fixtures/)</div>
+              <div class="nc-btns">
+                <button class="btn primary" id="approve5">Approve</button>
+                <button class="btn" id="deny5">Deny + guide</button>
+              </div>
+            </div>
+
+            <div class="needcard" id="card6">
+              <div class="nc-title"><i class="dot d-err"></i><span class="num">6</span> chase down memory leak in worker pool</div>
+              <div class="nc-cmd q">✗ stalled 14m — no output since the bisect started</div>
+              <div class="nc-btns">
+                <button class="btn" id="nudge6">Nudge</button>
+              </div>
+            </div>
+
+            <div class="hv-lbl">all sessions — tap to select &amp; expand</div>
+            <div id="sesslist"></div>
+          </div>
+
+          <div class="hv-toast" id="hvtoast"></div>
+          <div class="hv-prompt">
+            <span class="hv-target" id="hvtarget"><i class="dot d-busy"></i>1</span>
+            <input id="hvinput" placeholder="prompt selected session" />
+            <button class="hv-send" id="hvsend" aria-label="send">⏎</button>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><b>M8a — tailnet slice.</b> served from the mac on 127.0.0.1, exposed only via <b>tailscale serve</b>, authenticated by device identity. approvals allowed here — it's the strong channel. no yolo toggle exists remotely. <b>tap a session</b> to target it and expand its last-sent + live line.</p>
+    </div>
+
+    <!-- ————— iMessage bridge ————— -->
+    <div class="phonewrap">
+      <div class="phone"><div class="island"></div>
+        <div class="screen im">
+          <div class="im-nav">
+            <div class="im-ava">H<i></i></div>
+            <div class="im-name">Hypervisor <span>· self-chat</span></div>
+          </div>
+          <div class="im-body" id="imbody">
+            <div class="stamp">Today 2:41 PM</div>
+            <div class="bub me">status</div>
+            <div class="bub them"><span class="mono">🟡 2 working · 🟢 4 done · 🔴 2 need you
+
+5 · billing webhooks — wants to run:
+Bash(stripe fixtures pull …)
+6 · memory leak — stalled 14m
+
+reply “5: &lt;guidance&gt;” or “nudge 6”</span></div>
+            <div class="typing" id="imtyping"><i></i><i></i><i></i></div>
+          </div>
+          <div class="im-input">
+            <div class="chips" id="imchips">
+              <button class="chip" data-k="approve">approve 5</button>
+              <button class="chip" data-k="prompt">3: tighten the summary, cut 30%</button>
+              <button class="chip" data-k="status">status</button>
+            </div>
+            <div class="im-fakebar">iMessage · tap a suggestion above</div>
+          </div>
+        </div>
+      </div>
+      <p class="caption"><b>M8b — iMessage bridge.</b> hypervisor reads the self-chat from chat.db (read-only, like the cursor adapter) and replies via Messages. <b>approvals are off by default</b> over this channel — identity is softer than the tailnet. tap the suggestions to see the conversation.</p>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h5>Threat model</h5>
+      <p>a remote channel controls approvals = command execution on the mac. so: <b>tailnet = full control</b> (WireGuard + device identity), <b>iMessage = read-mostly</b> (status, prompts; approvals opt-in), and no channel ever exposes yolo.</p>
+    </div>
+    <div class="note">
+      <h5>Plumbing</h5>
+      <p>the mobile page and SSE stream reuse the exact snapshot + command layer the desktop uses — <b>no second code path</b>. every remote action toasts on the desktop and lands in history: <b>approved via remote · joe@… · 14:02</b>.</p>
+    </div>
+    <div class="note">
+      <h5>Sequencing</h5>
+      <p>after M7 (menu bar + notifications), which builds the command-from-outside plumbing. order: <b>M8a tailnet → M8b iMessage</b>. spec: design/remote.md.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+
+  // ————— left phone: triage slice —————
+  const SESSIONS = [
+    { n: '1', dot: 'd-busy', t: 'refactor auth middleware to session tokens', m: 'fable-5',
+      sent: 'use the existing redis client, don’t add ioredis',
+      live: '⚒ Edit(src/auth/middleware.ts) — logout clears the cookie but not the redis entry, fixing that too' },
+    { n: '2', dot: 'd-ok', t: 'fix flaky retry test in ci', m: 'gpt-5-codex',
+      sent: 'failure is only on ubuntu-latest, so it’s timing',
+      live: '✓ widened retry window to 250ms + jitter · 3 consecutive green runs' },
+    { n: '3', dot: 'd-ok', t: 'q3 roadmap narrative draft', m: 'fable-5',
+      sent: 'tighten the security section, cut it by a third',
+      live: '✓ redraft ready — security section down from 900 to 580 words' },
+    { n: '4', dot: 'd-busy', t: 'migrate dashboard to tailwind v4', m: 'sonnet-5',
+      sent: 'keep the class sorting plugin, drop the rest of postcss',
+      live: '⚒ Grep("@apply") — 41 matches in 17 files, inlining the css-module ones' },
+    { n: '7', dot: 'd-ok', t: 'audit npm scripts for postinstall hooks', m: 'gpt-5',
+      sent: 'flag anything that runs code on install',
+      live: '✓ 2 packages flagged — esbuild pinned, husky postinstall removed' },
+  ];
+  let target = '1', targetDot = 'd-busy';
+  const toastT = { t: null };
+  function toast(msg) {
+    const el = $('#hvtoast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastT.t);
+    toastT.t = setTimeout(() => el.classList.remove('show'), 3200);
+  }
+  function renderSess() {
+    $('#sesslist').innerHTML = SESSIONS.map(s => `
+      <div class="sess ${target === s.n ? 'sel' : ''}" data-n="${s.n}">
+        <div class="sess-row">
+          <span class="num">${s.n}</span><i class="dot ${s.dot}"></i>
+          <span class="t">${s.t}</span><span class="m">${s.m}</span>
+        </div>
+        ${target === s.n ? `<div class="sess-detail">
+          <div class="sd-sent">${s.sent}</div>
+          <div class="sd-live ${s.dot === 'd-ok' ? 'ok' : ''}">${s.live}</div>
+        </div>` : ''}
+      </div>`).join('');
+    document.querySelectorAll('.sess').forEach(el =>
+      el.addEventListener('click', () => {
+        const s = SESSIONS.find(x => x.n === el.dataset.n);
+        setTarget(s.n, s.dot);
+      }));
+  }
+  function setTarget(n, dotCls) {
+    target = n; targetDot = dotCls;
+    $('#hvtarget').innerHTML = `<i class="dot ${dotCls}"></i>${n}`;
+    renderSess();
+  }
+  renderSess();
+
+  $('#approve5').addEventListener('click', () => {
+    const c = $('#card5');
+    c.classList.add('resolved');
+    c.innerHTML = `<div class="nc-title"><i class="dot d-busy"></i><span class="num">5</span> integration tests for billing webhooks</div>
+      <div class="nc-state">✓ approved from your phone — running · desktop shows “approved via remote · joe@…”</div>`;
+    toast('⇥ approved — Bash(stripe fixtures pull …)');
+    setTimeout(() => {
+      c.classList.add('done');
+      c.querySelector('.dot').className = 'dot d-ok';
+      c.querySelector('.nc-state').textContent = '✓ done — fixtures written, tests green';
+      $('#redcount').innerHTML = '<i class="dot d-err"></i>1 needs you';
+    }, 4200);
+  });
+  $('#deny5').addEventListener('click', () => {
+    setTarget('5', 'd-err');
+    $('#hvinput').placeholder = 'deny with guidance — message goes to 5';
+    $('#hvinput').focus();
+    toast('type guidance — sending denies the request');
+  });
+  $('#nudge6').addEventListener('click', () => {
+    const c = $('#card6');
+    c.classList.add('resolved');
+    c.querySelector('.nc-cmd').outerHTML = '<div class="nc-state">↻ nudged — session resumed output 3s later</div>';
+    c.querySelector('.nc-btns').remove();
+    c.querySelector('.dot').className = 'dot d-busy';
+    toast('nudge sent to 6');
+  });
+  function hvSend() {
+    const v = $('#hvinput').value.trim();
+    if (!v) return;
+    $('#hvinput').value = '';
+    $('#hvinput').placeholder = 'prompt selected session';
+    toast(`sent to ${target} — session working`);
+    setTarget(target, 'd-busy');
+  }
+  $('#hvsend').addEventListener('click', hvSend);
+  $('#hvinput').addEventListener('keydown', e => { if (e.key === 'Enter') hvSend(); });
+
+  // ————— right phone: scripted iMessage —————
+  const SCRIPT = {
+    approve: [
+      { who: 'me', t: 'approve 5' },
+      { who: 'them', t: 'approvals are disabled over iMessage (soft identity).\n\nuse the tailnet page — or enable “approvals via iMessage” in Settings on your mac.' },
+    ],
+    prompt: [
+      { who: 'me', t: '3: tighten the summary, cut 30%' },
+      { who: 'them', t: 'sent to 3 · q3 roadmap narrative draft (claude.ai · fable-5) — working. i’ll text you when it responds.' },
+      { who: 'them', t: '🟢 3 done — redraft ready, security section down from 900 to 580 words.', delay: 4200 },
+    ],
+    status: [
+      { who: 'me', t: 'status' },
+      { who: 'them', t: '🟡 3 working · 🟢 4 done · 🔴 1 needs you\n\n5 · billing webhooks — wants to run:\nBash(stripe fixtures pull …)' },
+    ],
+  };
+  const body = $('#imbody'), typing = $('#imtyping');
+  function bubble(who, text) {
+    const d = document.createElement('div');
+    d.className = 'bub ' + who;
+    if (who === 'them') { const s = document.createElement('span'); s.className = 'mono'; s.textContent = text; d.appendChild(s); }
+    else d.textContent = text;
+    body.insertBefore(d, typing);
+    body.scrollTop = body.scrollHeight;
+  }
+  let busy = false;
+  document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', () => {
+    if (busy) return;
+    busy = true;
+    const steps = SCRIPT[ch.dataset.k];
+    bubble('me', steps[0].t);
+    let wait = 600;
+    steps.slice(1).forEach(step => {
+      setTimeout(() => { typing.classList.add('on'); body.scrollTop = body.scrollHeight; }, wait);
+      wait += 900 + Math.min(step.t.length * 6, 1400);
+      if (step.delay) wait = step.delay + 1200;
+      setTimeout(() => { typing.classList.remove('on'); bubble('them', step.t); }, wait);
+      wait += 300;
+    });
+    setTimeout(() => { busy = false; }, wait + 200);
+  }));
+})();
+</script>

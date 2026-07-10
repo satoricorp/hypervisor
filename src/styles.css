@@ -32,12 +32,22 @@ html, body, #root {
   }
   .mark small { font-family: var(--mono); font-weight: 400; letter-spacing: .05em; color: var(--ink-3); font-size: 8px; margin-left: 8px; }
   .menukey {
-    margin-left: auto; font: inherit; font-size: 10px; letter-spacing: .06em;
+    font: inherit; font-size: 10px; letter-spacing: .06em;
     color: var(--ink-2); background: var(--inset);
     border: 1px solid var(--border); border-radius: var(--r-chip);
     padding: 4px 8px; cursor: pointer;
   }
   .menukey:hover { color: var(--ink); border-color: var(--border-2); }
+  .tvbtn {
+    margin-left: auto; font: inherit; font-size: 10px; letter-spacing: .06em;
+    color: var(--ink-2); background: var(--inset);
+    border: 1px solid var(--border); border-radius: var(--r-chip);
+    padding: 4px 9px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .tvbtn:hover { color: var(--ink); border-color: var(--border-2); }
+  .tvbtn.on { color: var(--mint); border-color: rgba(87,224,201,.4); }
+  .tvbtn svg { display: block; }
   .ticker {
     cursor: pointer; font-size: 10.5px; color: var(--ink-3);
     font-variant-numeric: tabular-nums;

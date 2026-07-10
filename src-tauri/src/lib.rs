@@ -2,6 +2,7 @@ mod adapters;
 pub mod control;
 pub mod events;
 pub mod registry;
+mod tv;
 
 pub use adapters::{Adapter, Session};
 pub use registry::{scan_sessions, watch_sessions, watch_sessions_cli, Harness};
@@ -38,7 +39,9 @@ pub fn run() {
             spawn_session,
             send_prompt,
             kill_session,
-            adopt_session
+            adopt_session,
+            tv::toggle_tv,
+            tv::tv_interrupt
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

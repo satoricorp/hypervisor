@@ -468,6 +468,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const palInputRef = useRef<HTMLInputElement | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // TV design-review prototype: sid → last state, to catch red transitions
+  const tvPrevRef = useRef<Record<string, string>>({});
+
+  // If the PiP tv is open, a session newly turning red pauses it (design/tv.md).
+  // Fire-and-forget; tv_interrupt is a no-op when the tv window is closed.
+  function tvOnRed(sessions: Session[]) {
+    const prev = tvPrevRef.current;
+    const next: Record<string, string> = {};
+    for (const s of sessions) {
+      const sid = s.sid || s.title;
+      next[sid] = s.state;
+      if (s.state === "error" && prev[sid] && prev[sid] !== "error") {
+        import("@tauri-apps/api/core").then(({ invoke }) =>
+          invoke("tv_interrupt", {
+            title: s.title,
+            detail: "stalled — no output; needs a look",
+          }).catch(() => {}),
+        );
+      }
+    }
+    tvPrevRef.current = next;
+  }
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -492,10 +514,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       try {
         unlisten = await listen<SessionWire[]>("sessions:update", (ev) => {
-          dispatch({
-            type: "SET_SESSIONS",
-            sessions: (ev.payload || []).map(wireToSession),
-          });
+          const sessions = (ev.payload || []).map(wireToSession);
+          tvOnRed(sessions);
+          dispatch({ type: "SET_SESSIONS", sessions });
         });
       } catch (e) {
         console.error("listen sessions:update failed", e);
