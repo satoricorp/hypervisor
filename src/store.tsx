@@ -8,31 +8,23 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { MOCK_SESSIONS, MODELS, PAL, ROOT_CMDS, TARGETS } from "./mockSessions";
+import { listen } from "@tauri-apps/api/event";
+import { MODELS, PAL, ROOT_CMDS, TARGETS } from "./menuData";
 import { ensureLog } from "./constants";
+import { listSessions, sendPrompt, spawnSession, waitForOwnedSid } from "./api";
+import { wireToSession, type SessionWire } from "./wire";
 import type {
   AppState,
   MenuItem,
   Session,
   ViewName,
 } from "./types";
-import {
-  schedulePlanReady,
-  scheduleSessionComplete,
-  scheduleSubPromptDone,
-  scheduleSubagentDone,
-  scheduleYoloApprovals,
-  startThinkingCycler,
-  stopThinkingCycler,
-} from "./simulate";
 
 function deepCloneSessions(sessions: Session[]): Session[] {
   return structuredClone(sessions);
 }
 
-function menuItemsFor(
-  state: AppState,
-): MenuItem[] {
+function menuItemsFor(state: AppState): MenuItem[] {
   const { menu, prompt } = state;
   if (menu.step === "root") {
     const f = prompt.slice(1).toLowerCase();
@@ -70,7 +62,7 @@ function withPalItems(state: AppState): AppState {
 
 export const initialState: AppState = withPalItems(
   withMenuItems({
-    sessions: deepCloneSessions(MOCK_SESSIONS),
+    sessions: [],
     sel: 0,
     subSel: -1,
     view: "session",
@@ -109,18 +101,20 @@ export type Action =
   | { type: "SET_PAL_FILTER"; value: string }
   | { type: "PAL_ACTIVE"; active: number }
   | { type: "SET_YOLO"; on: boolean }
-  | { type: "COMPLETE_SESSION"; i: number }
-  | { type: "SUB_DONE"; sessionIndex: number; subIndex: number }
-  | { type: "PLAN_READY"; i: number }
-  | { type: "THINK_TICK" }
-  | { type: "SEND" }
+  | { type: "SET_SESSIONS"; sessions: Session[] }
   | { type: "APPROVE_SEL" }
-  | { type: "YOLO_APPROVE"; i: number }
   | { type: "CHOOSE_MENU" }
   | { type: "CHOOSE_PAL" }
   | { type: "START_NEW_AGENT" }
   | { type: "OPEN_SUBAGENTS_FROM_PAL" }
-  | { type: "PATCH_SESSION"; i: number; patch: Partial<Session> };
+  | { type: "CLEAR_PROMPT" }
+  | { type: "OPTIMISTIC_SENT"; i: number; text: string }
+  | {
+      type: "REQUEST_SPAWN";
+      cmd: string;
+      target: string;
+      model: string;
+    };
 
 function toast(state: AppState, html: string): AppState {
   return { ...state, toasts: { html, show: true } };
@@ -128,6 +122,7 @@ function toast(state: AppState, html: string): AppState {
 
 function select(state: AppState, i: number): AppState {
   const len = state.sessions.length;
+  if (len === 0) return { ...state, sel: 0, subSel: -1 };
   const sel = ((i % len) + len) % len;
   return {
     ...state,
@@ -139,7 +134,7 @@ function select(state: AppState, i: number): AppState {
 
 function moveSub(state: AppState, dir: number): AppState {
   const s = state.sessions[state.sel];
-  if (!s.subs.length) return state;
+  if (!s || !s.subs.length) return state;
   let subSel = state.subSel;
   if (dir > 0) subSel = Math.min(subSel + 1, s.subs.length - 1);
   else subSel = subSel <= 0 ? -1 : subSel - 1;
@@ -159,19 +154,6 @@ function mutateSessions(
   return { ...state, sessions };
 }
 
-function completeSession(state: AppState, i: number): AppState {
-  return toast(
-    mutateSessions(state, (sessions) => {
-      const s = sessions[i];
-      s.state = "done";
-      s.age = "now";
-      s.result = "✓ done — response ready to review";
-      s.output = [];
-    }),
-    `<b>●</b> ${esc(state.sessions[i].app)} responded — ${esc(state.sessions[i].title)}`,
-  );
-}
-
 function esc(s: string): string {
   return String(s).replace(
     /[&<>"]/g,
@@ -180,124 +162,8 @@ function esc(s: string): string {
   );
 }
 
-function sendTo(state: AppState, i: number, text: string): AppState {
-  return mutateSessions(state, (sessions) => {
-    const s = sessions[i];
-    if (s.fresh) {
-      s.title = text.length > 64 ? text.slice(0, 61) + "…" : text;
-      s.fresh = false;
-    }
-    if (s.log) {
-      if (s.state === "done" && s.result) {
-        s.log.push({ k: "agent", t: s.result });
-        (s.output || []).forEach((l) => s.log!.push({ k: "agent", t: l }));
-      }
-      s.log.push({ k: "you", t: text });
-    }
-    s.sent = text;
-    s.state = "working";
-    s.output = [];
-    s.tool = "Read";
-    s.toolArg = "session context";
-    s.think = [
-      "reading the new instruction…",
-      "scanning recent changes…",
-      "planning the next step…",
-    ];
-    s.thinkIdx = 0;
-  });
-}
-
-function approve(state: AppState, i: number): { state: AppState; ok: boolean; tool?: string; toolArg?: string } {
-  const s0 = state.sessions[i];
-  if (!s0.approval) return { state, ok: false };
-  const cmd = s0.approval;
-  const next = mutateSessions(state, (sessions) => {
-    const s = sessions[i];
-    s.approval = null;
-    ensureLog(s);
-    s.log!.push({ k: "tool", t: `approved → ${cmd}` });
-    s.state = "working";
-    s.tool = "Bash";
-    s.toolArg = cmd.replace(/^Bash\((.*)\)$/, "$1");
-    s.think = [
-      "running the approved command…",
-      "watching output for failures",
-      "will report when finished",
-    ];
-    s.thinkIdx = 0;
-  });
-  return {
-    state: next,
-    ok: true,
-    tool: "Bash",
-    toolArg: cmd.replace(/^Bash\((.*)\)$/, "$1"),
-  };
-}
-
-function spawnSub(
-  state: AppState,
-  target: string,
-  model: string,
-  task?: string,
-): AppState {
-  const title = state.sessions[state.sel].title;
-  return toast(
-    mutateSessions(state, (sessions) => {
-      const s = sessions[state.sel];
-      s.subs.push({
-        target,
-        model,
-        state: "working",
-        task: task || "handoff — " + s.title,
-      });
-    }),
-    `↳ spawned <b>${esc(target)} · ${esc(model)}</b> ← “${esc(title)}”`,
-  );
-}
-
-function createSession(
-  state: AppState,
-  target: string,
-  model: string,
-): AppState {
-  const app = target === "claude" ? "claude code" : target;
-  const busy = state.sessions.some((x) => x.repo === "gx");
-  const wt = busy ? "wt-" + (2 + Math.floor(Math.random() * 7)) : undefined;
-  const sessions = deepCloneSessions(state.sessions);
-  sessions.push({
-    app,
-    model,
-    title: "new session — send the first prompt",
-    sent: "—",
-    state: "input",
-    ask: "? waiting for the first prompt",
-    ctl: "tmux",
-    repo: "gx",
-    br: "main",
-    wt,
-    subs: [],
-    fresh: true,
-    log: [
-      { k: "tool", t: "History(2 session summaries attached)" },
-      {
-        k: "agent",
-        t: "auth-tokens: “sessions moved to redis-backed tokens, ttl 24h, logout clears both stores”",
-      },
-      {
-        k: "agent",
-        t: "sync-backoff: “retries capped at 30s with full jitter to avoid thundering herd”",
-      },
-    ],
-  });
-  const next = select({ ...state, sessions }, sessions.length - 1);
-  return toast(
-    next,
-    (wt
-      ? `session created in <b>gx</b> — repo busy, spun up worktree <b>${wt}</b>`
-      : "session created in <b>gx</b>") +
-      " · context from 2 prior sessions attached",
-  );
+function harnessLabel(target: string): string {
+  return target === "claude" ? "claude code" : target;
 }
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -399,93 +265,38 @@ export function reducer(state: AppState, action: Action): AppState {
           ? "yolo on — auto-approving everything. godspeed."
           : "yolo off — approvals wait for ⇥ again",
       );
-    case "COMPLETE_SESSION":
-      return completeSession(state, action.i);
-    case "SUB_DONE":
+    case "SET_SESSIONS": {
+      const sessions = action.sessions;
+      let sel = state.sel;
+      if (sessions.length === 0) sel = 0;
+      else if (sel >= sessions.length) sel = sessions.length - 1;
+      const prevSid = state.sessions[state.sel]?.sid;
+      if (prevSid) {
+        const idx = sessions.findIndex((s) => s.sid === prevSid);
+        if (idx >= 0) sel = idx;
+      }
+      return { ...state, sessions, sel };
+    }
+    case "CLEAR_PROMPT":
+      return { ...state, prompt: "" };
+    case "OPTIMISTIC_SENT":
       return mutateSessions(state, (sessions) => {
-        const sub = sessions[action.sessionIndex]?.subs[action.subIndex];
-        if (sub) sub.state = "done";
+        const s = sessions[action.i];
+        if (!s) return;
+        s.sent = action.text;
+        s.state = "working";
+        ensureLog(s);
+        s.log!.push({ k: "you", t: action.text });
       });
-    case "PLAN_READY":
-      return toast(
-        mutateSessions(state, (sessions) => {
-          const s = sessions[action.i];
-          s.state = "input";
-          s.ask = "? plan ready — 6 steps, est. 40m. approve to execute?";
-        }),
-        `plan ready — <b>${esc(state.sessions[action.i].title)}</b> waiting on approval`,
-      );
-    case "THINK_TICK":
-      return mutateSessions(state, (sessions) => {
-        sessions.forEach((s) => {
-          if (s.state === "working" && s.think && s.think.length) {
-            s.thinkIdx = ((s.thinkIdx ?? 0) + 1) % s.think.length;
-          }
-        });
-      });
-    case "SEND": {
-      const s = state.sessions[state.sel];
-      if (state.subSel < 0 && s.ctl === "observe") {
-        if (s.noAdopt) {
-          return toast(
-            state,
-            "no control path for claude.ai yet — browser extension planned",
-          );
-        }
-        return toast(
-          mutateSessions(state, (sessions) => {
-            const sess = sessions[state.sel];
-            sess.ctl = "tmux";
-            ensureLog(sess);
-            sess.log!.push({
-              k: "tool",
-              t: `tmux new-session -d -s hv-${state.sel + 1} 'claude --resume ${sess.sid || "…"}'`,
-            });
-          }),
-          `adopted as <b>hv-${state.sel + 1}</b> — now running in the background, keeps working with the lid closed`,
-        );
-      }
-      const text = state.prompt.trim();
-      if (!text) return state;
-      let next = state;
-      if (state.subSel < 0 && s.approval) {
-        next = toast(
-          mutateSessions(next, (sessions) => {
-            const sess = sessions[state.sel];
-            sess.approval = null;
-            ensureLog(sess);
-            sess.log!.push({ k: "tool", t: "denied — guidance sent instead" });
-          }),
-          "denied — your guidance goes to the session",
-        );
-      }
-      if (state.subSel >= 0 && s.subs[state.subSel]) {
-        next = mutateSessions(next, (sessions) => {
-          const x = sessions[state.sel].subs[state.subSel];
-          if (x.log) x.log.push({ k: "you", t: text });
-          x.task = text;
-          x.state = "working";
-        });
-      } else {
-        next = sendTo(next, state.sel, text);
-      }
-      return { ...next, prompt: "" };
-    }
-    case "APPROVE_SEL": {
-      const result = approve(state, state.sel);
-      if (result.ok) {
-        return toast(
-          result.state,
-          `⇥ approved — ${esc(result.tool!)}(${esc(result.toolArg!)})`,
-        );
-      }
-      return toast(state, "nothing pending approval on this session");
-    }
-    case "YOLO_APPROVE": {
-      if (!state.yolo) return state;
-      const result = approve(state, action.i);
-      return result.ok ? result.state : state;
-    }
+    case "APPROVE_SEL":
+      return toast(state, "approvals land in M3");
+    case "REQUEST_SPAWN":
+      // Handled in StoreProvider effect; reducer just closes menu.
+      return {
+        ...state,
+        menu: { ...state.menu, open: false },
+        prompt: "",
+      };
     case "CHOOSE_MENU": {
       const it = state.menu.items[state.menu.active];
       if (!it) return state;
@@ -501,76 +312,23 @@ export function reducer(state: AppState, action: Action): AppState {
             },
           });
         }
-        let next: AppState = {
+        const next: AppState = {
           ...state,
           menu: { ...state.menu, open: false },
           prompt: "",
         };
-        if (it.id === "broadcast") {
-          next = toast(next, "prompt queued to all live sessions");
-          next.sessions.forEach((s, i) => {
-            if (s.state !== "error" && s.ctl !== "observe") {
-              next = sendTo(next, i, "broadcast: status check — summarize where you are");
-            }
-          });
-          return next;
-        }
-        if (it.id === "plan") {
-          next = toast(
-            mutateSessions(next, (sessions) => {
-              const s = sessions[state.sel];
-              s.state = "working";
-              s.tool = "Plan";
-              s.toolArg = "drafting approach";
-              s.think = [
-                "breaking the task into ordered steps",
-                "checking constraints against the codebase",
-                "estimating scope per step",
-              ];
-              s.thinkIdx = 0;
-            }),
-            `planning “${esc(state.sessions[state.sel].title)}” — will pause for approval`,
-          );
-          return next;
-        }
-        if (it.id === "review") {
-          return spawnSub(
-            next,
-            "codex",
-            "gpt-5-codex",
-            "review the diff — correctness, tests, edge cases",
-          );
-        }
-        if (it.id === "loop") {
-          const wasLoop = !!state.sessions[state.sel].loop;
-          return toast(
-            mutateSessions(next, (sessions) => {
-              sessions[state.sel].loop = !wasLoop;
-            }),
-            wasLoop
-              ? "loop stopped"
-              : `↻ looping “${esc(state.sessions[state.sel].title)}” every 10m until stopped`,
-          );
-        }
-        if (it.id === "worktree") {
-          const s = state.sessions[state.sel];
-          if (!s.repo) {
-            return toast(
-              next,
-              "this session has no git workspace — /worktree needs a repo",
-            );
-          }
-          const wt = "wt-" + (2 + Math.floor(Math.random() * 7));
-          return toast(
-            mutateSessions(next, (sessions) => {
-              sessions[state.sel].wt = wt;
-            }),
-            `↳ “${esc(s.title)}” moved to fresh worktree <b>${wt}</b> — branch preserved`,
-          );
+        if (
+          it.id === "plan" ||
+          it.id === "review" ||
+          it.id === "loop" ||
+          it.id === "worktree" ||
+          it.id === "broadcast"
+        ) {
+          return toast(next, "lands in M3/M4");
         }
         return toast(
           next,
-          `<b>/${esc(it.id)}</b> — concept only, not wired in this mock`,
+          `<b>/${esc(it.id)}</b> — concept only, not wired yet`,
         );
       }
       if (state.menu.step === "target") {
@@ -584,17 +342,12 @@ export function reducer(state: AppState, action: Action): AppState {
           },
         });
       }
-      {
-        const closed = {
-          ...state,
-          menu: { ...state.menu, open: false },
-          prompt: "",
-        };
-        if (state.menu.cmd === "new") {
-          return createSession(closed, state.menu.target!, it.id);
-        }
-        return spawnSub(closed, state.menu.target!, it.id);
-      }
+      // model step — close menu; spawn kicked off by keyboard/effect via REQUEST_SPAWN
+      return {
+        ...state,
+        menu: { ...state.menu, open: false },
+        prompt: "",
+      };
     }
     case "CHOOSE_PAL": {
       const it = state.palette.items[state.palette.active];
@@ -619,20 +372,7 @@ export function reducer(state: AppState, action: Action): AppState {
         });
       }
       if (it.id === "broadcast") {
-        next = toast(
-          { ...next, view: "session" },
-          "prompt queued to all live sessions",
-        );
-        next.sessions.forEach((s, i) => {
-          if (s.state !== "error" && s.ctl !== "observe") {
-            next = sendTo(
-              next,
-              i,
-              "broadcast: status check — summarize where you are",
-            );
-          }
-        });
-        return next;
+        return toast({ ...next, view: "session" }, "lands in M3/M4");
       }
       return { ...next, view: it.id as ViewName };
     }
@@ -664,16 +404,11 @@ export function reducer(state: AppState, action: Action): AppState {
           target: null,
         },
       });
-    case "PATCH_SESSION":
-      return mutateSessions(state, (sessions) => {
-        Object.assign(sessions[action.i], action.patch);
-      });
     default:
       return state;
   }
 }
 
-// Side-effect bridge: schedule timers after certain actions.
 type StoreValue = {
   state: AppState;
   dispatch: Dispatch<Action>;
@@ -683,20 +418,94 @@ type StoreValue = {
 
 const StoreContext = createContext<StoreValue | null>(null);
 
+async function runSpawn(
+  dispatch: Dispatch<Action>,
+  state: AppState,
+  cmd: string,
+  target: string,
+  model: string,
+) {
+  const parent = state.sessions[state.sel];
+  const cwd = parent?.cwd || null;
+  const harness = harnessLabel(target);
+  const before = new Set(
+    state.sessions.filter((s) => s.ctl === "tmux" && s.sid).map((s) => s.sid!),
+  );
+  try {
+    const name = await spawnSession(harness, model, cwd);
+    dispatch({
+      type: "TOAST",
+      html: `spawned <b>${esc(name)}</b> · ${esc(harness)} · ${esc(model)}`,
+    });
+    if (cmd === "subagents") {
+      const title = parent?.title || "session";
+      const sid = await waitForOwnedSid(before, 15_000);
+      if (!sid) {
+        dispatch({
+          type: "TOAST",
+          html: "handoff prompt must be sent manually — mapping timed out",
+        });
+        return;
+      }
+      try {
+        await sendPrompt(sid, `handoff — ${title}`);
+        dispatch({
+          type: "TOAST",
+          html: `↳ handoff sent to <b>${esc(sid.slice(0, 8))}</b>`,
+        });
+      } catch (e) {
+        dispatch({ type: "TOAST", html: esc(String(e)) });
+      }
+    }
+  } catch (e) {
+    dispatch({ type: "TOAST", html: esc(String(e)) });
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const promptRef = useRef<HTMLInputElement | null>(null);
   const palInputRef = useRef<HTMLInputElement | null>(null);
-  const prevRef = useRef(state);
-  const yoloRef = useRef(state.yolo);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
-    yoloRef.current = state.yolo;
-  }, [state.yolo]);
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
 
-  useEffect(() => {
-    startThinkingCycler(() => dispatch({ type: "THINK_TICK" }));
-    return () => stopThinkingCycler();
+    (async () => {
+      try {
+        const wire = await listSessions();
+        if (!cancelled) {
+          dispatch({
+            type: "SET_SESSIONS",
+            sessions: wire.map(wireToSession),
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          dispatch({
+            type: "TOAST",
+            html: `failed to load sessions: ${esc(String(e))}`,
+          });
+        }
+      }
+      try {
+        unlisten = await listen<SessionWire[]>("sessions:update", (ev) => {
+          dispatch({
+            type: "SET_SESSIONS",
+            sessions: (ev.payload || []).map(wireToSession),
+          });
+        });
+      } catch (e) {
+        console.error("listen sessions:update failed", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -706,66 +515,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [state.toasts.show, state.toasts.html]);
 
-  // Detect transitions that need timers
-  useEffect(() => {
-    const prev = prevRef.current;
-    prevRef.current = state;
-
-    // Session went working → schedule complete
-    state.sessions.forEach((s, i) => {
-      const p = prev.sessions[i];
-      if (s.state === "working" && (!p || p.state !== "working" || p.sent !== s.sent || p.tool !== s.tool)) {
-        // Plan has its own timer
-        if (s.tool === "Plan") {
-          schedulePlanReady(i, (idx) =>
-            dispatch({ type: "PLAN_READY", i: idx }),
-          );
-        } else if (s.tool === "Bash" || s.tool === "Read" || s.tool === "Edit" || s.tool === "Grep" || s.tool === "WebSearch") {
-          // Only schedule for newly-started work from send/approve, not initial mock working
-          if (p && (p.state !== "working" || p.sent !== s.sent || (p.approval && !s.approval))) {
-            scheduleSessionComplete(i, (idx) =>
-              dispatch({ type: "COMPLETE_SESSION", i: idx }),
-            );
-          }
-        }
-      }
-    });
-
-    // New subagent spawned
-    state.sessions.forEach((s, i) => {
-      const p = prev.sessions[i];
-      if (!p) return;
-      if (s.subs.length > p.subs.length) {
-        const subIndex = s.subs.length - 1;
-        scheduleSubagentDone(
-          (si, sj) => dispatch({ type: "SUB_DONE", sessionIndex: si, subIndex: sj }),
-          i,
-          subIndex,
-        );
-      } else {
-        s.subs.forEach((sub, j) => {
-          const ps = p.subs[j];
-          if (ps && sub.state === "working" && ps.state !== "working") {
-            scheduleSubPromptDone(
-              (si, sj) =>
-                dispatch({ type: "SUB_DONE", sessionIndex: si, subIndex: sj }),
-              i,
-              j,
-            );
-          }
-        });
-      }
-    });
-
-    // Yolo turned on
-    if (state.yolo && !prev.yolo) {
-      scheduleYoloApprovals(state.sessions.length, (i) => {
-        if (yoloRef.current) dispatch({ type: "YOLO_APPROVE", i });
-      });
-    }
-  }, [state]);
-
-  // Focus prompt when starting new agent / subagents from palette
   useEffect(() => {
     if (
       state.menu.open &&
@@ -792,4 +541,53 @@ export function useStore() {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error("useStore outside StoreProvider");
   return ctx;
+}
+
+/** Side-effectful send — called from keyboard Enter. */
+export async function doSend(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const s = state.sessions[state.sel];
+  if (!s) return;
+
+  if (state.subSel < 0 && s.ctl === "observe") {
+    dispatch({ type: "TOAST", html: "adoption lands in M2b" });
+    return;
+  }
+
+  const text = state.prompt.trim();
+  if (!text) return;
+  dispatch({ type: "CLEAR_PROMPT" });
+
+  if (!s.sid) {
+    dispatch({ type: "TOAST", html: "session has no sid yet" });
+    return;
+  }
+
+  try {
+    await sendPrompt(s.sid, text);
+    dispatch({ type: "OPTIMISTIC_SENT", i: state.sel, text });
+  } catch (e) {
+    dispatch({ type: "TOAST", html: esc(String(e)) });
+  }
+}
+
+/** Choose menu item — may kick off spawn. */
+export function chooseMenu(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): void {
+  const it = state.menu.items[state.menu.active];
+  if (!it) return;
+
+  if (state.menu.step === "model") {
+    const cmd = state.menu.cmd;
+    const target = state.menu.target!;
+    const model = it.id;
+    dispatch({ type: "REQUEST_SPAWN", cmd, target, model });
+    void runSpawn(dispatch, state, cmd, target, model);
+    return;
+  }
+  dispatch({ type: "CHOOSE_MENU" });
 }

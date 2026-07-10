@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CTL_HINT, STATE_META, buildLog, iconOf } from "../constants";
-import { HISTORY } from "../mockSessions";
+import { HISTORY } from "../menuData";
 import { useStore } from "../store";
 import { SubagentList } from "./SubagentList";
 import { SubTranscript, Transcript } from "./Transcript";
@@ -294,7 +294,20 @@ function SessionView() {
   useEffect(() => {
     const el = document.getElementById("dlog");
     if (el) el.scrollTop = el.scrollHeight;
-  }, [state.sel, state.subSel, s.state, s.log, s.thinkIdx]);
+  }, [state.sel, state.subSel, s?.state, s?.log, s?.thinkIdx]);
+
+  if (!s) {
+    return (
+      <div className="dwrap">
+        <div className="dhead">
+          <h3>no sessions yet</h3>
+        </div>
+        <p className="dfrom">
+          + New Agent or /new to spawn one in hypervisor tmux
+        </p>
+      </div>
+    );
+  }
 
   if (state.subSel >= 0 && s.subs[state.subSel]) {
     const x = s.subs[state.subSel];

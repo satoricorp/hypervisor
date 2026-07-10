@@ -1,4 +1,4 @@
-import { useStore } from "../store";
+import { chooseMenu, useStore } from "../store";
 
 export function CommandMenu() {
   const { state, dispatch } = useStore();
@@ -22,7 +22,7 @@ export function CommandMenu() {
       : menu.step === "target"
         ? menu.cmd === "new"
           ? "new session → pick harness"
-          : `subagents → pick target · from "${state.sessions[state.sel].title}"`
+          : `subagents → pick target · from "${state.sessions[state.sel]?.title ?? "session"}"`
         : `${who} → ${menu.target} → pick model`;
 
   return (
@@ -39,7 +39,11 @@ export function CommandMenu() {
               data-i={i}
               onClick={() => {
                 dispatch({ type: "MENU_ACTIVE", active: i });
-                dispatch({ type: "CHOOSE_MENU" });
+                const next = {
+                  ...state,
+                  menu: { ...state.menu, active: i },
+                };
+                chooseMenu(next, dispatch);
               }}
             >
               <span className="cl">{it.label}</span>

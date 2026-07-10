@@ -2,7 +2,7 @@
 
 export type SessionState = "working" | "done" | "input" | "error";
 
-export type ControlTier = "tmux" | "native" | "watch" | "observe";
+export type ControlTier = "tmux" | "api" | "native" | "watch" | "observe";
 
 export type LogKind = "you" | "agent" | "tool";
 
@@ -42,6 +42,8 @@ export interface Session {
   age?: string;
   noAdopt?: boolean;
   sid?: string;
+  cwd?: string;
+  sidechains?: number;
   loop?: boolean;
   fresh?: boolean;
   log?: LogEntry[];

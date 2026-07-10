@@ -5,11 +5,19 @@ import { CommandMenu } from "./CommandMenu";
 export function PromptBar() {
   const { state, dispatch, promptRef } = useStore();
   const s = state.sessions[state.sel];
-  const inSub = state.subSel >= 0 && s.subs[state.subSel];
+  const inSub = s && state.subSel >= 0 && s.subs[state.subSel];
 
   let placeholder = "prompt selected session — or / for commands";
   let targetInner;
-  if (inSub) {
+  if (!s) {
+    targetInner = (
+      <>
+        <i className="tdot" style={{ background: "var(--dim)" }} />
+        <span>—</span>
+      </>
+    );
+    placeholder = "no sessions — + New Agent or /new";
+  } else if (inSub) {
     const m = STATE_META[s.subs[state.subSel].state];
     targetInner = (
       <>

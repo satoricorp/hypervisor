@@ -31,7 +31,11 @@ export function Sidebar() {
             <span className="t">{s.title}</span>
             <span className="m">
               {s.approval ? "⏸ approval · " : ""}
-              {s.subs.length ? `↳ ${s.subs.length} · ` : ""}
+              {(s.sidechains ?? 0) > 0
+                ? `↳ ${s.sidechains} · `
+                : s.subs.length
+                  ? `↳ ${s.subs.length} · `
+                  : ""}
               {s.model}
               {s.repo ? ` · ${s.repo}` : ""}
               {s.ctl === "observe" ? <span className="obstag">obs</span> : null}

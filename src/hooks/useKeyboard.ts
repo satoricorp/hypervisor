@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useStore } from "../store";
+import { chooseMenu, doSend, useStore } from "../store";
 
 /**
  * Global keydown — order matches design/mockup-b.html exactly:
@@ -97,14 +97,14 @@ export function useKeyboard() {
         }
         if (e.key === "Enter") {
           e.preventDefault();
-          dispatch({ type: "CHOOSE_MENU" });
+          chooseMenu(state, dispatch);
           return;
         }
       }
       if (inInput) {
         if (e.key === "Enter") {
           e.preventDefault();
-          dispatch({ type: "SEND" });
+          void doSend(state, dispatch);
         }
         return;
       }
@@ -142,8 +142,8 @@ export function useKeyboard() {
       if (e.key === "Enter") {
         e.preventDefault();
         const s = state.sessions[state.sel];
-        if (state.subSel < 0 && s.ctl === "observe") {
-          dispatch({ type: "SEND" });
+        if (s && state.subSel < 0 && s.ctl === "observe") {
+          void doSend(state, dispatch);
         } else {
           input?.focus();
         }

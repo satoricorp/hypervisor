@@ -26,7 +26,6 @@ impl Harness {
 }
 
 /// Scan all harnesses (or a subset) and return sessions sorted by mtime desc.
-/// Callable from lib code (later: tauri `sessions:update` emitter).
 pub fn scan_sessions(
     max_age_hours: f64,
     limit: usize,
@@ -86,9 +85,12 @@ fn session_key(s: &Session) -> (String, String) {
     (s.harness.clone(), s.sid.clone())
 }
 
-/// Watch harness source roots; print `<harness> <sid> <old> -> <new>` on transitions.
-/// Debounce 500ms; rescan only the harness whose files changed.
-pub fn watch_sessions(max_age_hours: f64, limit: usize) -> Result<(), String> {
+/// Watch harness source roots; call `on_snapshot` with the full merged list
+/// on startup and after each debounced change (500ms).
+pub fn watch_sessions<F>(max_age_hours: f64, limit: usize, mut on_snapshot: F) -> Result<(), String>
+where
+    F: FnMut(Vec<Session>),
+{
     let (tx, rx) = mpsc::channel::<Result<Event, notify::Error>>();
     let mut watcher = RecommendedWatcher::new(
         move |res| {
@@ -106,14 +108,16 @@ pub fn watch_sessions(max_age_hours: f64, limit: usize) -> Result<(), String> {
         }
     }
 
-    let mut prev: HashMap<(String, String), String> = HashMap::new();
-    for s in scan_sessions(max_age_hours, limit, None) {
-        prev.insert(session_key(&s), s.state.clone());
-    }
-    eprintln!("watching… (ctrl-c to quit)");
+    // Initial full snapshot before any fs event.
+    on_snapshot(scan_sessions(max_age_hours, limit, None));
 
     let debounce = Duration::from_millis(500);
     let mut pending: HashMap<Harness, Instant> = HashMap::new();
+    // Cache per-harness so we only rescan the harness that changed.
+    let mut by_harness: HashMap<Harness, Vec<Session>> = HashMap::new();
+    for h in [Harness::ClaudeCode, Harness::Codex, Harness::Cursor] {
+        by_harness.insert(h, scan_sessions(max_age_hours, limit, Some(h)));
+    }
 
     loop {
         let timeout = pending
@@ -161,26 +165,45 @@ pub fn watch_sessions(max_age_hours: f64, limit: usize) -> Result<(), String> {
             .map(|(h, _)| *h)
             .collect();
 
+        if ready.is_empty() {
+            continue;
+        }
+
         for h in ready {
             pending.remove(&h);
-            let scanned = scan_sessions(max_age_hours, limit, Some(h));
-            let mut seen: HashSet<(String, String)> = HashSet::new();
-            for s in &scanned {
-                let k = session_key(s);
-                seen.insert(k.clone());
-                if let Some(old) = prev.get(&k) {
-                    if old != &s.state {
-                        println!("{} {} {} -> {}", s.harness, s.sid, old, s.state);
-                    }
-                }
-                prev.insert(k, s.state.clone());
-            }
-            prev.retain(|(harness, sid), _| {
-                harness != h.as_str() || seen.contains(&(harness.clone(), sid.clone()))
-            });
+            by_harness.insert(h, scan_sessions(max_age_hours, limit, Some(h)));
         }
+
+        let mut merged = Vec::new();
+        for h in [Harness::ClaudeCode, Harness::Codex, Harness::Cursor] {
+            if let Some(part) = by_harness.get(&h) {
+                merged.extend(part.iter().cloned());
+            }
+        }
+        merged.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
+        on_snapshot(merged);
     }
 
     let _ = watcher;
     Ok(())
+}
+
+/// CLI helper: print `<harness> <sid> <old> -> <new>` on state transitions.
+pub fn watch_sessions_cli(max_age_hours: f64, limit: usize) -> Result<(), String> {
+    let mut prev: HashMap<(String, String), String> = HashMap::new();
+    eprintln!("watching… (ctrl-c to quit)");
+    watch_sessions(max_age_hours, limit, |sessions| {
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for s in &sessions {
+            let k = session_key(s);
+            seen.insert(k.clone());
+            if let Some(old) = prev.get(&k) {
+                if old != &s.state {
+                    println!("{} {} {} -> {}", s.harness, s.sid, old, s.state);
+                }
+            }
+            prev.insert(k, s.state.clone());
+        }
+        prev.retain(|k, _| seen.contains(k));
+    })
 }

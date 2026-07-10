@@ -4,7 +4,7 @@ import { useStore } from "../store";
 export function SubagentList() {
   const { state, dispatch } = useStore();
   const s = state.sessions[state.sel];
-  if (!s.subs.length) return null;
+  if (!s?.subs.length) return null;
   return (
     <div className="subswrap">
       {s.subs.map((x, j) => (

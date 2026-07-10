@@ -22,6 +22,10 @@ export const CTL_HINT: Record<
     label: "api · background",
     tip: "driven over the harness’s local api — survives app restarts",
   },
+  api: {
+    label: "api · background",
+    tip: "driven over the harness’s local api — survives app restarts",
+  },
   watch: {
     label: "watch",
     tip: "read-only watcher — cursor owns this session",
@@ -49,22 +53,14 @@ export function iconOf(n: string): string {
   return ICON[n] || (n === "claude" ? ICON["claude code"] : "");
 }
 
+/** Transcript from real adapter fields only (full history is M5). */
 export function buildLog(s: Session) {
-  const L = [
-    { k: "you" as const, t: s.title },
-    {
-      k: "agent" as const,
-      t: "on it — scoping the work before touching anything.",
-    },
-    { k: "tool" as const, t: "Read(project context)" },
-  ];
-  if (s.state === "working" || s.state === "error") {
-    L.push({
-      k: "agent",
-      t: "first pass done; the remaining work is mechanical but touches several files.",
-    });
+  if (s.log && s.log.length) return s.log;
+  const L: { k: "you" | "agent" | "tool"; t: string }[] = [];
+  if (s.title) L.push({ k: "you", t: s.title });
+  if (s.sent && s.sent !== "—" && s.sent !== s.title) {
+    L.push({ k: "you", t: s.sent });
   }
-  L.push({ k: "you", t: s.sent });
   return L;
 }
 

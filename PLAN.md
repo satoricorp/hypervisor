@@ -170,14 +170,19 @@ spike is their test oracle; UI second, binding them together in M2).
   mockup's mock-session array. `npm run tauri dev` works.
   AC: the keyboard map above fully drives the mock UI.
 
-- [ ] **M2 — control + live binding.** Registry emits `sessions:update` tauri
-  events from the M1 watcher; sidebar goes live. Own tmux server (control
-  mode). `/new` spawns
-`tmux new-session -d 'claude'` etc.; prompt bar sends via send-keys; adoption
-flow for observe-only claude/codex sessions; opencode over HTTP.
-AC: press 2, type, ⏎ — the prompt lands in a real session; adopt a bare
-terminal session and then successfully prompt it. Real sessions render with
-live dots: yellow while a real claude session works, green within 2s of done.
+- [x] **M2 — live binding + owned-tmux control.** Registry emits
+  `sessions:update` tauri events from the M1 watcher; sidebar goes live.
+  Dedicated tmux socket (`tmux -L hypervisor`); `/new` spawns claude/codex
+  sessions; prompt bar sends via send-keys; spawned-session ↔ transcript
+  correlation persisted in owned.json. Task file: `tasks/M2.md`.
+  AC: real sessions render with live dots (yellow while a real claude session
+  works, green within 2s of done); + New Agent creates an `hv-*` tmux session
+  that appears in the sidebar; a prompt sent from the bar lands in it.
+
+- [ ] **M2b — adoption + opencode.** Adopt observe-only claude/codex sessions
+  (respawn under our tmux via `--resume`, with the live-writer fork guard from
+  §Risks); opencode over `opencode serve` HTTP (`api` control tier).
+  AC: adopt a bare terminal session and then successfully prompt it.
 
 - [ ] **M3 — approvals.** Detect pending permission requests (claude code: hook
 `PreToolUse`/permission events or transcript markers; codex: approval prompts in

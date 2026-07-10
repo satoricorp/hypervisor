@@ -2,7 +2,7 @@
 //!
 //! Flags: --json, --max-age <hours>, --limit <n>, --watch
 
-use hypervisor_lib::{scan_sessions, watch_sessions};
+use hypervisor_lib::{scan_sessions, watch_sessions_cli};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -41,7 +41,7 @@ fn main() {
     }
 
     if watch {
-        if let Err(e) = watch_sessions(max_age, limit) {
+        if let Err(e) = watch_sessions_cli(max_age, limit) {
             eprintln!("watch failed: {e}");
             std::process::exit(1);
         }
