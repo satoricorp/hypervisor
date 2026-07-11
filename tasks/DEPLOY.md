@@ -41,10 +41,13 @@ only.
    right-click → Open (unsigned until notarization lands)". No analytics,
    no third-party assets (same zero-remote-content discipline as the app).
 3. **Release script** `scripts/release.sh`: refuses on dirty tree; reads
-   version from tauri.conf.json; `npm run tauri build`; uploads DMG +
-   `latest.json` (tauri-updater manifest format, prepared for Phase 2) to
-   `s3://…/releases/vX.Y.Z/` and `…/latest/`; syncs `site/`; CloudFront
-   invalidation. Idempotent re-runs.
+   version from tauri.conf.json; exports `POSTHOG_PROJECT_KEY` +
+   `POSTHOG_HOST` (from env/GitHub secrets — official analytics are baked
+   into distributed builds per tasks/POSTHOG.md; the script warns loudly if
+   they're unset so a keyless build isn't shipped by accident);
+   `npm run tauri build`; uploads DMG + `latest.json` (tauri-updater
+   manifest format, prepared for Phase 2) to `s3://…/releases/vX.Y.Z/` and
+   `…/latest/`; syncs `site/`; CloudFront invalidation. Idempotent re-runs.
 4. **CI**: `.github/workflows/macos-release.yaml` modeled on gx's — tag push
    `v*` → build on `macos-latest` → same uploads. Keep the local script as
    the fallback path.

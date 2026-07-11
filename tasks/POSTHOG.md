@@ -35,8 +35,14 @@ distinct_id, properties}` — no SDK needed):
   Settings view ("analytics — anonymous feature counts, never content";
   the row links to this schema). If default is ON, first launch shows a
   one-time toast: "anonymous usage analytics are on — Settings to turn off."
-- The project key is embedded at build time (env var in the release
-  workflow → `option_env!`); dev builds without the env send nothing.
+- **Key embedding (Joe's distribution decision, 2026-07-11):** the official
+  `phc_` key is baked into the builds people download — the release script
+  and CI inject `POSTHOG_PROJECT_KEY` + `POSTHOG_HOST` from GitHub secrets
+  (`option_env!` at compile time), so hypervisor.sh downloads report to our
+  project by default (disclosed + toggleable, as above). Anyone building
+  from source gets it "for themselves otherwise": no env = telemetry fully
+  inert; set your own key/host env = your own PostHog project. Document
+  this in the README's build section.
 
 ## Event schema (complete list — adding an event = amending this file)
 
