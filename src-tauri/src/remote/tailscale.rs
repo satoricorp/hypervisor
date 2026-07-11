@@ -11,14 +11,28 @@ pub struct TailscaleInfo {
 
 /// Probe `tailscale status --json`. Returns None if the CLI is missing/broken
 /// or the daemon isn't up.
-pub fn detect() -> Option<TailscaleInfo> {
-    let output = Command::new("tailscale")
-        .args(["status", "--json"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+///
+/// PATH lookup alone is not enough: a Finder-launched .app gets a minimal
+/// PATH without /usr/local/bin — fall back to the standard install paths
+/// (macOS is case-insensitive; the app-bundle binary answers as the CLI).
+fn probe_status() -> Option<std::process::Output> {
+    const CANDIDATES: [&str; 3] = [
+        "tailscale",
+        "/usr/local/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ];
+    for bin in CANDIDATES {
+        if let Ok(out) = Command::new(bin).args(["status", "--json"]).output() {
+            if out.status.success() {
+                return Some(out);
+            }
+        }
     }
+    None
+}
+
+pub fn detect() -> Option<TailscaleInfo> {
+    let output = probe_status()?;
     let v: Value = serde_json::from_slice(&output.stdout).ok()?;
     let self_node = v.get("Self")?;
     let dns_name = self_node
@@ -32,8 +46,9 @@ pub fn detect() -> Option<TailscaleInfo> {
             .and_then(|x| x.as_i64())
             .map(|i| i as u64)
     })?;
-    let profiles = v.get("UserProfiles")?;
-    // UserProfiles keys are stringified ints.
+    // tailscale 1.98 emits "User"; older builds used "UserProfiles".
+    let profiles = v.get("User").or_else(|| v.get("UserProfiles"))?;
+    // profile keys are stringified ints.
     let profile = profiles
         .get(uid.to_string())
         .or_else(|| profiles.get(&uid.to_string()))?;
