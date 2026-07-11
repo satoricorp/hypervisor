@@ -144,3 +144,16 @@ keep-awake by design).
   proven on loopback with `HV_DEV=1`.
 - **M8b task file needed (planner writes it).**
 
+
+---
+
+**Planner note (2026-07-10, post-session):** Tailscale installed + Serve
+enabled on the tailnet. Real identity path proven end-to-end, no HV_DEV:
+`tailscale serve --bg 127.0.0.1:7428` →
+`https://joes-macbook-pro.tail0bef04.ts.net (tailnet only) → 127.0.0.1:7428`;
+`GET /` → 200; `GET /api/sessions` through tailscaled → 200 with live
+snapshot (identity header verified against jlachance1@gmail.com). Two
+detection bugs found & fixed en route (commit 3138a86): tailscale 1.98 emits
+`User` (not `UserProfiles`) in status JSON, and bare PATH lookup fails in
+Finder-launched apps — candidate-path fallback added. Blocker section above
+is now fully resolved.
