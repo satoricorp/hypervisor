@@ -205,6 +205,12 @@ html, body, #root {
   .listrow .dim { color: var(--ink-3); }
   .listrow .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .listrow .tabnum { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+  .archbtn {
+    flex: none; font: inherit; font-size: 10px; letter-spacing: .06em;
+    color: var(--ink-2); background: transparent; border: 1px solid var(--border-2);
+    border-radius: var(--r-chip); padding: 2px 8px; cursor: pointer;
+  }
+  .archbtn:hover { color: var(--ink); border-color: var(--ink-3); }
   .chip-inc { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--border-2); border-radius: var(--r-chip); color: var(--ok); padding: 1px 6px; }
   .footnote { margin-top: 18px; font-size: 10px; color: var(--ink-3); }
   .hq {

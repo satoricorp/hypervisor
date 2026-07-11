@@ -24,11 +24,11 @@ file directly:
   `tasks/H2.md` → `tasks/H3.md` → `tasks/M7g.md` (gate: H1) →
   `tasks/M8a.md` (gate: M7g). Also queued: `tasks/TV.md` (gate: M3),
   `tasks/M7.md` (gate: M7g — re-scoped, grammar extracted),
-  `tasks/ARCHIVE.md` (gate: H3 — session archiving; = CURRENT as of
-  2026-07-10, Joe's go) → `tasks/PARITY.md` (gate: ARCHIVE — dogfood until
-  usable for claude code: transcript view, collapsible tools, gray thinking,
-  rename; absorbs TITLES Part 2) → `tasks/REALIZE.md` (gate: PARITY — every
-  control real or removed: settings, access, history-interim, stub
+  `tasks/ARCHIVE.md` (gate: H3 — session archiving; done 2026-07-10) →
+  `tasks/PARITY.md` (gate: ARCHIVE — dogfood until usable for claude code:
+  transcript view, collapsible tools, gray thinking, rename; absorbs TITLES
+  Part 2; = CURRENT as of 2026-07-10) → `tasks/REALIZE.md` (gate: PARITY —
+  every control real or removed: settings, access, history-interim, stub
   commands). Also queued: `tasks/M8b.md` (gate: M8a). TITLES is superseded
   (Part 1 shipped by planner, Part 2 folded into PARITY). M4/M5/M6 can
   interleave — M6 may be executed inside REALIZE (its bullet stands either
@@ -237,6 +237,12 @@ with Tab and proceeds. *Open AC closed in M3x (live pane + approve/deny proof).*
   structured toasts (no HTML over the wire), spawn dead-pane detection,
   adapter health line in the statusbar, sidebar overflow count, subagent
   rows populated or honestly hidden. Task file: `tasks/H3.md`.
+
+- [x] **ARCHIVE — hide finished sessions.** Local `archived.json` tombstones
+  (never harness-dir writes); ⌘⌫ + `/archive` + `/archive idle`; refuse
+  while working; resurface when mtime exceeds archived_at; owned idle also
+  kills `hv-*` tmux. Filter in events emit path only — hvscan stays raw.
+  Task file: `tasks/ARCHIVE.md`.
 
 - [x] **M7g — the grammar core.** Extracted from M7 so remote doesn't wait on
   tray/notification plumbing: the shared backend grammar

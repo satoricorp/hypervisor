@@ -14,6 +14,8 @@ import { ensureLog } from "./constants";
 import {
   adoptSession,
   approveSession,
+  archiveIdle,
+  archiveSession,
   denySession,
   getYolo,
   listSessions,
@@ -38,7 +40,23 @@ function menuItemsFor(state: AppState): MenuItem[] {
   const { menu, prompt } = state;
   if (menu.step === "root") {
     const f = prompt.slice(1).toLowerCase();
-    return ROOT_CMDS.filter((c) => c.label.slice(1).startsWith(f));
+    const idleCount = state.sessions.filter(
+      (s) => s.state === "done" || s.state === "error",
+    ).length;
+    return ROOT_CMDS.filter((c) => c.label.slice(1).startsWith(f)).map(
+      (c) => {
+        if (c.id === "archive-idle") {
+          return {
+            ...c,
+            desc:
+              idleCount === 0
+                ? "no idle sessions to hide"
+                : `hide ${idleCount} done/stalled session${idleCount === 1 ? "" : "s"}`,
+          };
+        }
+        return c;
+      },
+    );
   }
   if (menu.step === "target") return TARGETS;
   const models = MODELS[menu.target ?? ""] ?? [];
@@ -348,6 +366,10 @@ export function reducer(state: AppState, action: Action): AppState {
           it.id === "broadcast"
         ) {
           return toast(next, "lands in M3/M4");
+        }
+        if (it.id === "archive" || it.id === "archive-idle") {
+          // Side effect in chooseMenu → doArchive / doArchiveIdle.
+          return next;
         }
         return toast(next, `/${it.id}`, "concept only, not wired yet");
       }
@@ -749,7 +771,7 @@ export async function doSend(
   }
 }
 
-/** Choose menu item — may kick off spawn. */
+/** Choose menu item — may kick off spawn or archive. */
 export function chooseMenu(
   state: AppState,
   dispatch: Dispatch<Action>,
@@ -765,5 +787,50 @@ export function chooseMenu(
     void runSpawn(dispatch, state, cmd, target, model);
     return;
   }
+  if (state.menu.step === "root") {
+    if (it.id === "archive") {
+      dispatch({ type: "CHOOSE_MENU" });
+      void doArchive(state, dispatch);
+      return;
+    }
+    if (it.id === "archive-idle") {
+      dispatch({ type: "CHOOSE_MENU" });
+      void doArchiveIdle(dispatch);
+      return;
+    }
+  }
   dispatch({ type: "CHOOSE_MENU" });
+}
+
+/** ⌘⌫ / /archive — hide the selected session. */
+export async function doArchive(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const s = state.sessions[state.sel];
+  if (!s?.sid) {
+    dispatch({ type: "TOAST", label: "nothing to archive" });
+    return;
+  }
+  try {
+    const msg = await archiveSession(s.sid);
+    dispatch({ type: "TOAST", label: msg });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
+}
+
+/** /archive idle — tombstone every done/stalled row. */
+export async function doArchiveIdle(
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  try {
+    const n = await archiveIdle();
+    dispatch({
+      type: "TOAST",
+      label: n === 0 ? "nothing idle to archive" : `archived ${n}`,
+    });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
 }

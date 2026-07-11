@@ -17,8 +17,9 @@ pub use registry::{
 
 use control::adopt::adopt_session;
 use events::{
-    approve_session, deny_session, get_yolo, kill_session, list_sessions, send_prompt, set_yolo,
-    spawn_session, start_watcher, AppState,
+    approve_session, archive_idle, archive_session, deny_session, get_yolo, kill_session,
+    list_archived, list_sessions, send_prompt, set_yolo, spawn_session, start_watcher,
+    unarchive_session, AppState,
 };
 use remote::remote_status;
 use stable_ids::StableIds;
@@ -38,12 +39,16 @@ pub fn run() {
                 .unwrap_or_else(|_| PathBuf::from("."));
             let owned_path = data_dir.join("owned.json");
             let owned_map = control::owned::load(&owned_path);
+            let archived_path = data_dir.join("archived.json");
+            let archived_map = control::archived::load(&archived_path);
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
                 total: std::sync::Mutex::new(0),
                 sessions: std::sync::Mutex::new(Vec::new()),
                 owned: std::sync::Mutex::new(owned_map),
                 owned_path: std::sync::Mutex::new(owned_path),
+                archived: std::sync::Mutex::new(archived_map),
+                archived_path: std::sync::Mutex::new(archived_path),
                 pending: std::sync::Mutex::new(HashMap::new()),
                 approvals: std::sync::Mutex::new(HashMap::new()),
                 yolo: std::sync::Mutex::new(false),
@@ -74,6 +79,10 @@ pub fn run() {
             deny_session,
             set_yolo,
             get_yolo,
+            archive_session,
+            unarchive_session,
+            list_archived,
+            archive_idle,
             remote_status,
             tv::toggle_tv,
             tv::tv_interrupt

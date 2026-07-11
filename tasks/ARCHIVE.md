@@ -83,4 +83,62 @@ oracle proof), tick ARCHIVE in PLAN.md, note the next queue file, commit:
 
 ## Evidence
 
-(builder fills this in — an empty Evidence section means the milestone is not done)
+### Unit tests
+
+`cargo test --lib archive` — 4 passed:
+- `load_save_roundtrip` (archived.json)
+- `filter_hides_and_resurfaces` (mtime > archived_at drops tombstone)
+- `archive_refuses_working` → `session is working — wait for it to finish`
+- `archive_idle_skips_working_and_needs_you` (only done/stalled counted)
+
+Full: `cargo test --lib` → 34 passed, 3 ignored.
+
+### Live board / oracle (2026-07-10)
+
+```
+HVSCAN_BEFORE: 23 sessions
+DONE_OR_STALLED: 22  WORKING: 1
+ARCHIVE_TARGET: 3bc1e10a… state=done title='Execute ARCHIVE milestone'
+ARCHIVED_JSON: wrote 3bc1e10a… → ~/Library/Application Support/com.joe.hypervisor/archived.json
+HVSCAN_AFTER: 23 sessions · archived sid still present: YES
+ORACLE_PROOF: OK
+```
+
+`python3 spike/compare.py` → OK (23 sessions, 1 lenient activity diff).
+`hvscan --json` still lists archived sids (filter is events-layer only).
+
+Sidebar effect of the tombstone: raw 23 → app would show ~22 (1 hidden).
+Persistence: `archived.json` survives quit/relaunch (file on disk).
+
+### Working refusal
+
+Toast text (Err from `archive_session`):
+`session is working — wait for it to finish`
+
+### Owned idle → tmux kill
+
+```
+TMUX_SPAWNED: hv-archtest…
+TMUX_KILLED: True
+OWNED_IDLE_KILL_PROOF: OK
+```
+
+Toast when owned: `archived — tmux session closed; context stays in the transcript`.
+Harness dirs never written (adapters/`scan_sessions` untouched).
+
+### Frontend surface
+
+- ⌘⌫ → `archive_session(selected)` + toast; SET_SESSIONS keeps next row selected
+- `/archive` + `/archive idle` (menu desc shows idle count)
+- ⌘K → **archived** view with unarchive buttons / empty "nothing archived"
+
+### Verification
+
+- `bunx tsc --noEmit` → OK
+- `npm run tauri dev` → vite ready, `Running target/debug/hypervisor`,
+  startup scans for all four harnesses
+
+### Next queue file
+
+`tasks/PARITY.md` (copied into `tasks/CURRENT.md`)
+

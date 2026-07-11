@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listArchived, unarchiveSession, type ArchivedWire } from "../api";
 import { CTL_HINT, STATE_META, buildLog, iconOf } from "../constants";
 import { HISTORY } from "../menuData";
 import { useStore } from "../store";
@@ -345,6 +346,86 @@ function HistoryPane() {
   );
 }
 
+function formatArchivedWhen(at: number): string {
+  const d = new Date(at * 1000);
+  if (Number.isNaN(d.getTime())) return "—";
+  const now = Date.now();
+  const diff = now - d.getTime();
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function ArchivedPane() {
+  const { dispatch } = useStore();
+  const [rows, setRows] = useState<ArchivedWire[] | null>(null);
+
+  async function reload() {
+    try {
+      setRows(await listArchived());
+    } catch (e) {
+      dispatch({ type: "TOAST", label: String(e) });
+      setRows([]);
+    }
+  }
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  return (
+    <div className="pane">
+      <span className="escnote">esc ↩ session</span>
+      <h4>Archived</h4>
+      <div id="archrows">
+        {rows === null ? (
+          <div className="listrow">
+            <span className="cd">loading…</span>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="listrow">
+            <span className="dim">nothing archived</span>
+          </div>
+        ) : (
+          rows.map((r) => (
+            <div key={r.sid} className="listrow">
+              <span className="grow">{r.title || r.sid}</span>
+              <span className="dim">{r.harness || "—"}</span>
+              <span className="dim">{formatArchivedWhen(r.archived_at)}</span>
+              <button
+                type="button"
+                className="archbtn"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await unarchiveSession(r.sid);
+                      dispatch({
+                        type: "TOAST",
+                        label: "unarchived",
+                        detail: r.title || r.sid,
+                      });
+                      await reload();
+                    } catch (e) {
+                      dispatch({ type: "TOAST", label: String(e) });
+                    }
+                  })();
+                }}
+              >
+                unarchive
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <p className="footnote">
+        local tombstones only — transcripts stay on disk · resurfaces on new
+        activity
+      </p>
+    </div>
+  );
+}
+
 function SessionView() {
   const { state } = useStore();
   const s = state.sessions[state.sel];
@@ -440,6 +521,7 @@ export function MainPane() {
   else if (state.view === "access") body = <AccessPane />;
   else if (state.view === "settings") body = <SettingsPane />;
   else if (state.view === "history") body = <HistoryPane />;
+  else if (state.view === "archived") body = <ArchivedPane />;
   else body = <SessionView />;
   return <main id="main">{body}</main>;
 }

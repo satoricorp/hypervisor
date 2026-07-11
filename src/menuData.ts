@@ -118,6 +118,16 @@ export const ROOT_CMDS = [
     label: "/kill",
     desc: "end this session",
   },
+  {
+    id: "archive",
+    label: "/archive",
+    desc: "hide selected session from the board",
+  },
+  {
+    id: "archive-idle",
+    label: "/archive idle",
+    desc: "hide every done/stalled session",
+  },
 ];
 
 export const PAL = [
@@ -126,6 +136,11 @@ export const PAL = [
     id: "history",
     label: "history",
     desc: "finished sessions — searchable, stored locally",
+  },
+  {
+    id: "archived",
+    label: "archived",
+    desc: "hidden sessions — unarchive to restore",
   },
   { id: "usage", label: "usage", desc: "tokens & cost by model" },
   { id: "access", label: "access", desc: "keys & subscriptions" },

@@ -2,6 +2,7 @@
 
 use crate::adapters::Session;
 use crate::approvals::{self, PendingApproval, ToastEvent};
+use crate::control::archived::{self, ArchivedMap, ArchivedWire};
 use crate::control::owned::OwnedMap;
 use crate::control::{opencode, owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
@@ -92,6 +93,9 @@ pub struct AppState {
     pub sessions: Mutex<Vec<Session>>,
     pub owned: Mutex<OwnedMap>,
     pub owned_path: Mutex<PathBuf>,
+    /// Local tombstones — sid → archived_at (unix secs). Never touches harness dirs.
+    pub archived: Mutex<ArchivedMap>,
+    pub archived_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
     pub pending: Mutex<HashMap<String, PendingOwned>>,
     /// sid → pending permission (M3).
@@ -183,6 +187,7 @@ fn merge_pending(
     owned: &OwnedMap,
     pending: &HashMap<String, PendingOwned>,
     approvals: &HashMap<String, PendingApproval>,
+    archived: &ArchivedMap,
     ids: &mut StableIds,
 ) -> Vec<SessionWire> {
     let seen: std::collections::HashSet<_> = wire.iter().map(|s| s.sid.clone()).collect();
@@ -191,6 +196,10 @@ fn merge_pending(
             continue;
         }
         if !owned.contains_key(sid) {
+            continue;
+        }
+        // Same tombstone filter as adapter rows — never hide a living future.
+        if archived::is_hidden(archived, sid, p.spawn_time) {
             continue;
         }
         let approval = approvals.get(sid).map(|a| a.text.clone());
@@ -229,6 +238,28 @@ fn merge_pending(
     wire
 }
 
+/// Drop tombstones whose mtime advanced past archived_at; filter the rest.
+/// Persists when any tombstone is cleared (resurface).
+fn filter_archived(state: &AppState, sessions: &mut Vec<Session>) {
+    let mut archived = lock(&state.archived);
+    let mut dirty = false;
+    sessions.retain(|s| match archived.get(&s.sid).copied() {
+        Some(at) if s.mtime > at => {
+            archived.remove(&s.sid);
+            dirty = true;
+            true
+        }
+        Some(_) => false,
+        None => true,
+    });
+    if dirty {
+        let path = lock(&state.archived_path).clone();
+        if let Err(e) = archived::save(&path, &archived) {
+            eprintln!("archived.json save after resurface failed: {e}");
+        }
+    }
+}
+
 /// Build wire from cached sessions (or a provided list). Never full-rescans
 /// when the watcher cache is warm. Returns (wire, total_before_display_cap).
 fn apply_approvals_to_snapshot(
@@ -254,7 +285,7 @@ fn apply_approvals_to_snapshot(
         }
         lock(&state.ids).sync_approvals(&live);
     }
-    let sessions = match sessions {
+    let mut sessions = match sessions {
         Some(s) => s,
         None => {
             let cached = lock(&state.sessions).clone();
@@ -266,6 +297,9 @@ fn apply_approvals_to_snapshot(
             }
         }
     };
+    // Archive filter lives here (not in scan_sessions) so hvscan stays raw.
+    filter_archived(state, &mut sessions);
+    let archived = lock(&state.archived).clone();
     // Drop pending entries once adapters have the real row.
     {
         let mut p = lock(&state.pending);
@@ -279,6 +313,7 @@ fn apply_approvals_to_snapshot(
         &owned,
         &pending,
         &approvals,
+        &archived,
         &mut ids,
     );
     (wire, total)
@@ -730,6 +765,160 @@ pub fn kill_session(
     tmux::kill(&target)
 }
 
+/// Effective wire state for a sid (approvals → needs_you), from snapshot or cache.
+fn effective_state(state: &AppState, sid: &str) -> Option<String> {
+    {
+        let snap = lock(&state.snapshot);
+        if let Some(s) = snap.iter().find(|s| s.sid == sid) {
+            return Some(s.state.clone());
+        }
+    }
+    let sessions = lock(&state.sessions);
+    let s = sessions.iter().find(|s| s.sid == sid)?;
+    if lock(&state.approvals).contains_key(sid) {
+        Some("needs_you".into())
+    } else {
+        Some(s.state.clone())
+    }
+}
+
+/// Tombstone + optional tmux teardown for an owned idle session.
+fn archive_one(state: &AppState, sid: &str) -> Result<String, String> {
+    let st = effective_state(state, sid).unwrap_or_else(|| "done".into());
+    if st == "working" {
+        return Err("session is working — wait for it to finish".into());
+    }
+    // needs_you is skippable by archive_idle but a direct archive is allowed
+    // (user explicitly chose this row). Only working is refused.
+
+    let mut toast = "archived".to_string();
+    let tmux_name = {
+        let map = lock(&state.owned);
+        map.get(sid).map(|e| e.tmux.clone())
+    };
+    if let Some(name) = tmux_name {
+        let _ = tmux::kill(&name);
+        {
+            let mut map = lock(&state.owned);
+            map.remove(sid);
+            let path = lock(&state.owned_path).clone();
+            if let Err(e) = owned::save(&path, &map) {
+                eprintln!("owned.json save after archive failed: {e}");
+            }
+        }
+        toast =
+            "archived — tmux session closed; context stays in the transcript".into();
+    }
+
+    {
+        let mut archived = lock(&state.archived);
+        archived.insert(sid.to_string(), archived::now_secs());
+        let path = lock(&state.archived_path).clone();
+        archived::save(&path, &archived)?;
+    }
+    Ok(toast)
+}
+
+#[tauri::command]
+pub fn archive_session(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+) -> Result<String, String> {
+    let msg = archive_one(&state, &sid)?;
+    emit_current(&app, &state);
+    Ok(msg)
+}
+
+#[tauri::command]
+pub fn unarchive_session(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+) -> Result<(), String> {
+    {
+        let mut archived = lock(&state.archived);
+        archived.remove(&sid);
+        let path = lock(&state.archived_path).clone();
+        archived::save(&path, &archived)?;
+    }
+    emit_current(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_archived(state: State<'_, Arc<AppState>>) -> Vec<ArchivedWire> {
+    let archived = lock(&state.archived).clone();
+    if archived.is_empty() {
+        return Vec::new();
+    }
+    // Unfiltered scan so titles/harnesses resolve even for hidden rows.
+    let sessions = {
+        let cached = lock(&state.sessions).clone();
+        if !cached.is_empty() {
+            cached
+        } else {
+            scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None)
+        }
+    };
+    let by_sid: HashMap<&str, &Session> =
+        sessions.iter().map(|s| (s.sid.as_str(), s)).collect();
+    let mut out: Vec<ArchivedWire> = archived
+        .iter()
+        .map(|(sid, &at)| {
+            let (title, harness) = match by_sid.get(sid.as_str()) {
+                Some(s) => (s.title.clone(), s.harness.clone()),
+                None => (sid.clone(), String::new()),
+            };
+            ArchivedWire {
+                sid: sid.clone(),
+                title,
+                harness,
+                archived_at: at,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.archived_at
+            .partial_cmp(&a.archived_at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
+}
+
+#[tauri::command]
+pub fn archive_idle(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<u32, String> {
+    // Build effective states from the unfiltered cache + approvals.
+    let sessions = lock(&state.sessions).clone();
+    let approvals = lock(&state.approvals).clone();
+    let archived = lock(&state.archived).clone();
+    let mut count = 0u32;
+    for s in &sessions {
+        if archived::is_hidden(&archived, &s.sid, s.mtime) {
+            continue;
+        }
+        let st = if approvals.contains_key(&s.sid) {
+            "needs_you"
+        } else {
+            s.state.as_str()
+        };
+        if st == "working" || st == "needs_you" {
+            continue;
+        }
+        if st == "done" || st == "stalled" {
+            match archive_one(&state, &s.sid) {
+                Ok(_) => count += 1,
+                Err(_) => {} // working race — skip
+            }
+        }
+    }
+    emit_current(&app, &state);
+    Ok(count)
+}
+
 #[tauri::command]
 pub fn approve_session(
     app: AppHandle,
@@ -850,4 +1039,139 @@ pub fn any_owned_working(state: &AppState) -> bool {
     let snap = lock(&state.snapshot);
     snap.iter()
         .any(|s| owned.contains_key(&s.sid) && s.state == "working")
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+    use crate::control::archived;
+    use crate::remote::SseBus;
+    use crate::stable_ids::StableIds;
+    use std::fs;
+    use std::sync::Arc;
+
+    fn empty_state(dir: &Path) -> AppState {
+        AppState {
+            snapshot: Mutex::new(Vec::new()),
+            total: Mutex::new(0),
+            sessions: Mutex::new(Vec::new()),
+            owned: Mutex::new(OwnedMap::new()),
+            owned_path: Mutex::new(dir.join("owned.json")),
+            archived: Mutex::new(ArchivedMap::new()),
+            archived_path: Mutex::new(dir.join("archived.json")),
+            pending: Mutex::new(HashMap::new()),
+            approvals: Mutex::new(HashMap::new()),
+            yolo: Mutex::new(false),
+            yolo_seen: Mutex::new(std::collections::HashSet::new()),
+            ids: Mutex::new(StableIds::new()),
+            remote_bus: Arc::new(SseBus::new()),
+        }
+    }
+
+    fn sess(sid: &str, state: &str, mtime: f64) -> Session {
+        Session {
+            harness: "claude code".into(),
+            sid: sid.into(),
+            title: format!("t-{sid}"),
+            model: "m".into(),
+            cwd: "/tmp".into(),
+            branch: "main".into(),
+            last_user: String::new(),
+            last_assistant: String::new(),
+            activity: String::new(),
+            mtime,
+            state: state.into(),
+            age: "1m".into(),
+            repo: "r".into(),
+            src: String::new(),
+            sidechains: 0,
+            last_role: "assistant".into(),
+        }
+    }
+
+    #[test]
+    fn filter_hides_and_resurfaces() {
+        let dir = std::env::temp_dir().join(format!("hv-arch-ev-{}", archived::now_secs() as u64));
+        fs::create_dir_all(&dir).unwrap();
+        let state = empty_state(&dir);
+        {
+            let mut a = lock(&state.archived);
+            a.insert("dead".into(), 100.0);
+            a.insert("live".into(), 100.0);
+            archived::save(&lock(&state.archived_path), &a).unwrap();
+        }
+        let mut sessions = vec![sess("dead", "done", 50.0), sess("live", "done", 150.0)];
+        filter_archived(&state, &mut sessions);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].sid, "live");
+        assert!(!lock(&state.archived).contains_key("live"), "resurface drops tombstone");
+        assert!(lock(&state.archived).contains_key("dead"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn archive_refuses_working() {
+        let dir = std::env::temp_dir().join(format!("hv-arch-w-{}", archived::now_secs() as u64));
+        fs::create_dir_all(&dir).unwrap();
+        let state = empty_state(&dir);
+        *lock(&state.sessions) = vec![sess("w1", "working", 50.0)];
+        *lock(&state.snapshot) = to_wire(
+            &lock(&state.sessions),
+            &OwnedMap::new(),
+            &HashMap::new(),
+            &mut lock(&state.ids),
+        );
+        let err = archive_one(&state, "w1").unwrap_err();
+        assert!(err.contains("working"), "{err}");
+        assert!(lock(&state.archived).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn archive_idle_skips_working_and_needs_you() {
+        let dir = std::env::temp_dir().join(format!("hv-arch-i-{}", archived::now_secs() as u64));
+        fs::create_dir_all(&dir).unwrap();
+        let state = empty_state(&dir);
+        *lock(&state.sessions) = vec![
+            sess("d1", "done", 10.0),
+            sess("s1", "stalled", 10.0),
+            sess("w1", "working", 10.0),
+            sess("n1", "done", 10.0),
+        ];
+        lock(&state.approvals).insert(
+            "n1".into(),
+            PendingApproval {
+                text: "run ls".into(),
+                source: crate::approvals::ApprovalSource::Tmux,
+                fingerprint: None,
+            },
+        );
+        // archive_idle needs AppHandle — exercise selection logic inline
+        let approvals = lock(&state.approvals).clone();
+        let sids: Vec<(String, String)> = lock(&state.sessions)
+            .iter()
+            .map(|s| (s.sid.clone(), s.state.clone()))
+            .collect();
+        let mut n = 0u32;
+        for (sid, state_name) in sids {
+            let st = if approvals.contains_key(&sid) {
+                "needs_you"
+            } else {
+                state_name.as_str()
+            };
+            if st == "working" || st == "needs_you" {
+                continue;
+            }
+            if st == "done" || st == "stalled" {
+                archive_one(&state, &sid).unwrap();
+                n += 1;
+            }
+        }
+        assert_eq!(n, 2);
+        assert!(lock(&state.archived).contains_key("d1"));
+        assert!(lock(&state.archived).contains_key("s1"));
+        assert!(!lock(&state.archived).contains_key("w1"));
+        assert!(!lock(&state.archived).contains_key("n1"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

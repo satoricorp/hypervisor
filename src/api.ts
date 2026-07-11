@@ -83,3 +83,26 @@ export async function waitForOwnedSid(
 export async function toggleTv(): Promise<boolean> {
   return invoke<boolean>("toggle_tv");
 }
+
+export interface ArchivedWire {
+  sid: string;
+  title: string;
+  harness: string;
+  archived_at: number;
+}
+
+export async function archiveSession(sid: string): Promise<string> {
+  return invoke<string>("archive_session", { sid });
+}
+
+export async function unarchiveSession(sid: string): Promise<void> {
+  return invoke("unarchive_session", { sid });
+}
+
+export async function listArchived(): Promise<ArchivedWire[]> {
+  return invoke<ArchivedWire[]>("list_archived");
+}
+
+export async function archiveIdle(): Promise<number> {
+  return invoke<number>("archive_idle");
+}

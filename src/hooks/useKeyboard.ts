@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { toggleTv } from "../api";
-import { chooseMenu, doApprove, doSend, useStore } from "../store";
+import { chooseMenu, doApprove, doArchive, doSend, useStore } from "../store";
 
 /**
  * Global keydown — order matches design/mockup-b.html exactly:
  * ⌘K → palette branch → other-input guard → esc → menu → prompt →
  * Tab → digits → j/k → h/l → ⏎ → / → any-letter-focuses-prompt.
  * Plus ⌘N for New Agent (Tauri; browsers reserve it).
+ * Plus ⌘⌫ to archive the selected session (ARCHIVE).
  */
 export function useKeyboard() {
   const { state, dispatch, promptRef } = useStore();
@@ -23,6 +24,11 @@ export function useKeyboard() {
         e.preventDefault();
         dispatch({ type: "START_NEW_AGENT" });
         requestAnimationFrame(() => promptRef.current?.focus());
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Backspace") {
+        e.preventDefault();
+        void doArchive(state, dispatch);
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;

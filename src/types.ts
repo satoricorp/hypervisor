@@ -58,7 +58,8 @@ export type ViewName =
   | "usage"
   | "access"
   | "settings"
-  | "history";
+  | "history"
+  | "archived";
 
 export type MenuStep = "root" | "target" | "model";
 
