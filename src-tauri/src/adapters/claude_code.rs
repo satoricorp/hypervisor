@@ -34,6 +34,8 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
             .to_string();
         let src = path.to_string_lossy().to_string();
         let mut s = empty_raw("claude code", &sid, mtime, &src);
+        let mut first_user = String::new();
+        let mut summary_title = String::new();
 
         for line in read_lines(&path) {
             let e = match parse_json_object(&line) {
@@ -62,14 +64,22 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
             let typ = e.get("type").and_then(|v| v.as_str()).unwrap_or("");
             let msg = e.get("message").cloned().unwrap_or(Value::Object(Default::default()));
             let content = msg.get("content");
-            if typ == "user" && !e.get("isMeta").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if typ == "summary" {
+                // claude code's own generated short title (written on
+                // compaction) — prefer the latest one when present
+                if let Some(t) = e.get("summary").and_then(|v| v.as_str()) {
+                    if !t.is_empty() {
+                        summary_title = t.to_string();
+                    }
+                }
+            } else if typ == "user" && !e.get("isMeta").and_then(|v| v.as_bool()).unwrap_or(false) {
                 let texts = extract_user_texts(content);
                 for t in texts {
                     if !is_noise(&t) {
                         s.last_user = t.clone();
                         s.last_role = "user".into();
-                        if s.title.is_empty() {
-                            s.title = t;
+                        if first_user.is_empty() {
+                            first_user = t;
                         }
                     }
                 }
@@ -103,6 +113,11 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
                 }
             }
         }
+        s.title = if !summary_title.is_empty() {
+            clip(&summary_title, 64)
+        } else {
+            derive_title(&first_user)
+        };
         if !s.title.is_empty() {
             out.push(s);
         }

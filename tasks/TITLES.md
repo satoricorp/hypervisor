@@ -79,3 +79,15 @@ TITLES in PLAN.md, note the next queue file, commit:
 ## Evidence
 
 (builder fills this in — an empty Evidence section means the milestone is not done)
+
+---
+
+**Planner note (2026-07-10):** Part 1 (derivation) shipped ahead of the gate
+by the planner — Joe hit raw-prompt titles twice while actively testing.
+Findings: NO `type:"summary"` entries exist in any transcript on this machine
+(compaction-only), so the summary preference is future-proofing and the
+first-line 48-char word-boundary clip carries the feature; codex session_meta
+has no title field (checked live). Adapters + spike moved in lockstep;
+compare.py OK at 41/41 (an initial 2v2 mismatch was per-harness limit churn
+on a busy machine — two live agents writing during the run — not divergence).
+**This task is now Part 2 only: the rename override + /rename.** Same gate.

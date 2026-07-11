@@ -88,6 +88,52 @@ pub fn clip(s: &str, n: usize) -> String {
     }
 }
 
+/// Session title from a raw first prompt: first line only, clipped to 48
+/// chars at a word boundary. Harness-generated titles (claude summary
+/// entries, cursor composer names, opencode titles) bypass this.
+/// Mirrored in spike/hvwatch.py — change both together (compare.py enforces).
+pub fn derive_title(raw: &str) -> String {
+    let first_line = raw.lines().next().unwrap_or("").trim();
+    let collapsed: String = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX: usize = 48;
+    if collapsed.chars().count() <= MAX {
+        return collapsed;
+    }
+    let cut: String = collapsed.chars().take(MAX).collect();
+    // cut at the last space when it leaves a reasonable head; space is ASCII,
+    // so the byte index is a valid char boundary
+    let head = match cut.rfind(' ') {
+        Some(i) if i >= 24 => &cut[..i],
+        _ => cut.as_str(),
+    };
+    format!("{}…", head.trim_end())
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::derive_title;
+
+    #[test]
+    fn short_first_line_passes_through() {
+        assert_eq!(derive_title("fix the build\nrest is ignored"), "fix the build");
+    }
+    #[test]
+    fn long_line_clips_at_word_boundary() {
+        let t = derive_title(
+            "We need to update /download, since we don't have the menubar app anymore",
+        );
+        assert!(t.chars().count() <= 49, "{t}");
+        assert!(t.ends_with('…'), "{t}");
+        assert!(!t.contains("menub"), "no mid-word cut: {t}");
+    }
+    #[test]
+    fn unicode_is_safe() {
+        let t = derive_title(&"⚒é".repeat(60));
+        assert!(t.ends_with('…'));
+        assert!(t.chars().count() <= 49);
+    }
+}
+
 pub fn age_str(secs: f64) -> String {
     if secs < 60.0 {
         format!("{}s", secs as i64)

@@ -40,6 +40,7 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
         };
         let src = path.to_string_lossy().to_string();
         let mut s = empty_raw("codex", &sid, mtime, &src);
+        let mut first_user = String::new();
 
         for line in read_lines(&path) {
             let e = match parse_json_object(&line) {
@@ -101,8 +102,8 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
                     if p.get("role").and_then(|v| v.as_str()) == Some("user") {
                         s.last_user = text.clone();
                         s.last_role = "user".into();
-                        if s.title.is_empty() {
-                            s.title = text;
+                        if first_user.is_empty() {
+                            first_user = text;
                         }
                     } else {
                         s.last_assistant = text;
@@ -150,6 +151,8 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
                 }
             }
         }
+        // codex session_meta carries no title (checked 2026-07-10) — derive
+        s.title = derive_title(&first_user);
         if !s.title.is_empty() {
             out.push(s);
         }

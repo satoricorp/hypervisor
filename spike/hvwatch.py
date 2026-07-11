@@ -69,6 +69,19 @@ def jline(line):
     except (ValueError, RecursionError):
         return None
 
+def derive_title(raw):
+    """Title from a raw first prompt: first line, 48-char word-boundary clip.
+    Mirrored in src-tauri/src/adapters/mod.rs — change both together."""
+    lines = (raw or "").splitlines()
+    line = lines[0].strip() if lines else ""
+    collapsed = " ".join(line.split())
+    if len(collapsed) <= 48:
+        return collapsed
+    cut = collapsed[:48]
+    i = cut.rfind(" ")
+    head = cut[:i] if i >= 24 else cut
+    return head.rstrip() + "…"
+
 def is_noise(text):
     """Skip harness plumbing that lives in user slots (XML wrappers, AGENTS.md blobs)."""
     t = (text or "").lstrip()
@@ -100,6 +113,7 @@ def scan_claude(max_age_h, limit):
             "last_user": "", "activity": "", "last_assistant": "",
             "mtime": mtime, "src": path, "last_role": "", "sidechains": 0,
         }
+        first_user, summary_title = "", ""
         for line in read_lines(path):
             e = jline(line)
             if not e:
@@ -113,7 +127,11 @@ def scan_claude(max_age_h, limit):
             s["branch"] = e.get("gitBranch") or s["branch"]
             typ, msg = e.get("type"), e.get("message") or {}
             content = msg.get("content")
-            if typ == "user" and not e.get("isMeta"):
+            if typ == "summary":
+                # claude code's own generated short title (on compaction)
+                if e.get("summary"):
+                    summary_title = e["summary"]
+            elif typ == "user" and not e.get("isMeta"):
                 texts = []
                 if isinstance(content, str):
                     texts = [content]
@@ -124,8 +142,8 @@ def scan_claude(max_age_h, limit):
                     if not is_noise(t):
                         s["last_user"] = t
                         s["last_role"] = "user"
-                        if not s["title"]:
-                            s["title"] = t
+                        if not first_user:
+                            first_user = t
             elif typ == "assistant":
                 s["model"] = msg.get("model") or s["model"]
                 for c in content if isinstance(content, list) else []:
@@ -141,6 +159,7 @@ def scan_claude(max_age_h, limit):
                     elif c.get("type") == "text" and c.get("text"):
                         s["last_assistant"] = c["text"]
                         s["last_role"] = "assistant"
+        s["title"] = clip(summary_title, 64) if summary_title else derive_title(first_user)
         if s["title"]:
             out.append(s)
     out.sort(key=lambda x: -x["mtime"])
@@ -161,6 +180,7 @@ def scan_codex(max_age_h, limit):
             "last_user": "", "activity": "", "last_assistant": "",
             "mtime": mtime, "src": path, "last_role": "", "sidechains": 0,
         }
+        first_user = ""
         for line in read_lines(path):
             e = jline(line)
             if not e:
@@ -184,8 +204,8 @@ def scan_codex(max_age_h, limit):
                     if p.get("role") == "user":
                         s["last_user"] = text
                         s["last_role"] = "user"
-                        if not s["title"]:
-                            s["title"] = text
+                        if not first_user:
+                            first_user = text
                     else:
                         s["last_assistant"] = text
                         s["last_role"] = "assistant"
@@ -202,6 +222,8 @@ def scan_codex(max_age_h, limit):
                 if p.get("message"):
                     s["last_assistant"] = p["message"]
                     s["last_role"] = "assistant"
+        # codex session_meta carries no title (checked 2026-07-10) — derive
+        s["title"] = derive_title(first_user)
         if s["title"]:
             out.append(s)
     out.sort(key=lambda x: -x["mtime"])
