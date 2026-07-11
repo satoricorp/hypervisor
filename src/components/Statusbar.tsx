@@ -23,10 +23,28 @@ function healthLine(state: {
   return `${watch} · ${ads} · ${srv}`;
 }
 
+function harnessCounts(
+  sessions: { app: string }[],
+): string {
+  const counts: Record<string, number> = {};
+  for (const s of sessions) {
+    const k =
+      s.app === "claude code"
+        ? "claude"
+        : s.app || "other";
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  const parts = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k} ${n}`);
+  return parts.length === 0 ? "no sessions" : parts.join(" · ");
+}
+
 export function Statusbar() {
   const { state, dispatch } = useStore();
   const sel = state.sessions[state.sel];
   const showSubsHint = (sel?.subs.length ?? 0) > 0;
+  const n = state.total || state.sessions.length;
   return (
     <div className="statusbar">
       <div
@@ -42,7 +60,7 @@ export function Statusbar() {
           }
         }}
       >
-        <b>$4.51</b> · 2.41 MTOK
+        <b>{n}</b> live · {harnessCounts(state.sessions)}
       </div>
       <button
         className={`yolobtn ${state.yolo ? "on" : ""}`}

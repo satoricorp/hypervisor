@@ -4,6 +4,7 @@ use crate::adapters::Session;
 use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::archived::{self, ArchivedMap, ArchivedWire};
 use crate::control::owned::OwnedMap;
+use crate::control::settings::{self, Settings};
 use crate::control::titles::{self, TitlesMap};
 use crate::control::{opencode, owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
@@ -23,6 +24,9 @@ const LIMIT: usize = 8;
 /// Scan wider than LIMIT so `total` can be honest about overflow.
 const SCAN_LIMIT: usize = 64;
 const MAX_AGE_HOURS: f64 = 48.0;
+/// History interim: look back farther than the sidebar window.
+const HISTORY_MAX_AGE_HOURS: f64 = 24.0 * 30.0;
+const HISTORY_SCAN_LIMIT: usize = 200;
 
 /// Poisoning-tolerant lock — a panic in one critical section must not brick
 /// the app. DECISION: small helper over parking_lot to avoid a new direct dep.
@@ -101,6 +105,9 @@ pub struct AppState {
     /// Local title overrides — sid → custom title. Never touches harness dirs.
     pub titles: Mutex<TitlesMap>,
     pub titles_path: Mutex<PathBuf>,
+    /// Persisted settings (sources, tv pause). Autostart is OS-managed separately.
+    pub settings: Mutex<Settings>,
+    pub settings_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
     pub pending: Mutex<HashMap<String, PendingOwned>>,
     /// sid → pending permission (M3).
@@ -251,6 +258,14 @@ fn merge_pending(
     wire
 }
 
+/// Drop sessions whose harness source is disabled in settings.
+/// DECISION: owned sessions of a disabled source also vanish from the UI —
+/// re-enable the source to see them again; tmux keeps running underneath.
+fn filter_sources(state: &AppState, sessions: &mut Vec<Session>) {
+    let settings = lock(&state.settings);
+    sessions.retain(|s| settings.source_enabled(&s.harness));
+}
+
 /// Drop tombstones whose mtime advanced past archived_at; filter the rest.
 /// Persists when any tombstone is cleared (resurface).
 fn filter_archived(state: &AppState, sessions: &mut Vec<Session>) {
@@ -312,6 +327,8 @@ fn apply_approvals_to_snapshot(
     };
     // Archive filter lives here (not in scan_sessions) so hvscan stays raw.
     filter_archived(state, &mut sessions);
+    // Source toggles — disabled harnesses never reach the sidebar.
+    filter_sources(state, &mut sessions);
     let archived = lock(&state.archived).clone();
     let titles = lock(&state.titles).clone();
     // Drop pending entries once adapters have the real row.
@@ -774,16 +791,218 @@ pub fn send_prompt(
 
 #[tauri::command]
 pub fn kill_session(
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
     sid: String,
-) -> Result<(), String> {
-    let map = lock(&state.owned);
-    let target = map
-        .get(&sid)
-        .map(|e| e.tmux.clone())
-        .ok_or_else(|| "session is not owned by hypervisor tmux".to_string())?;
-    drop(map);
-    tmux::kill(&target)
+) -> Result<String, String> {
+    let target = {
+        let map = lock(&state.owned);
+        map.get(&sid)
+            .map(|e| e.tmux.clone())
+            .ok_or_else(|| "session is not owned by hypervisor tmux".to_string())?
+    };
+    tmux::kill(&target)?;
+    {
+        let mut map = lock(&state.owned);
+        map.remove(&sid);
+        lock(&state.pending).remove(&sid);
+        let path = lock(&state.owned_path).clone();
+        if let Err(e) = owned::save(&path, &map) {
+            eprintln!("owned.json save after kill failed: {e}");
+        }
+    }
+    emit_current(&app, &state);
+    Ok(format!("killed {target}"))
+}
+
+/// Send literal `/compact` to a claude tmux session (claude code slash cmd).
+#[tauri::command]
+pub fn compact_session(
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+) -> Result<String, String> {
+    let (tmux_name, harness) = {
+        let map = lock(&state.owned);
+        let entry = map
+            .get(&sid)
+            .ok_or_else(|| "session is not owned by hypervisor tmux".to_string())?;
+        (entry.tmux.clone(), entry.harness.clone())
+    };
+    let harness = if harness.is_empty() {
+        lock(&state.snapshot)
+            .iter()
+            .find(|s| s.sid == sid)
+            .map(|s| s.harness.clone())
+            .unwrap_or_default()
+    } else {
+        harness
+    };
+    if harness != "claude code" && harness != "claude" {
+        return Err("/compact is only for claude code tmux sessions".into());
+    }
+    tmux::send(&tmux_name, "/compact")?;
+    Ok("sent /compact".into())
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct BroadcastResult {
+    pub sid: String,
+    pub title: String,
+    pub ok: bool,
+    pub detail: String,
+}
+
+/// Send `text` to every controllable session (tmux + opencode api).
+#[tauri::command]
+pub fn broadcast_prompt(
+    state: State<'_, Arc<AppState>>,
+    text: String,
+) -> Result<Vec<BroadcastResult>, String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("usage: /broadcast <prompt>".into());
+    }
+    let snap = lock(&state.snapshot).clone();
+    let owned = lock(&state.owned).clone();
+    let mut results = Vec::new();
+    for s in &snap {
+        let controllable = owned.contains_key(&s.sid) || s.control == "api";
+        if !controllable {
+            continue;
+        }
+        let title = s.title.clone();
+        match prompt_sid(&state, &s.sid, &text) {
+            Ok(()) => results.push(BroadcastResult {
+                sid: s.sid.clone(),
+                title,
+                ok: true,
+                detail: "sent".into(),
+            }),
+            Err(e) => results.push(BroadcastResult {
+                sid: s.sid.clone(),
+                title,
+                ok: false,
+                detail: e,
+            }),
+        }
+    }
+    if results.is_empty() {
+        return Err("no controllable sessions to broadcast to".into());
+    }
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn get_settings(state: State<'_, Arc<AppState>>) -> Settings {
+    lock(&state.settings).clone()
+}
+
+#[tauri::command]
+pub fn set_settings(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    settings: Settings,
+) -> Result<Settings, String> {
+    {
+        let path = lock(&state.settings_path).clone();
+        settings::save(&path, &settings)?;
+        *lock(&state.settings) = settings.clone();
+    }
+    // Source toggles change which rows appear — re-emit now.
+    emit_current(&app, &state);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn get_access() -> Vec<crate::access::AccessRow> {
+    crate::access::probe_access()
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct HistoryRow {
+    pub sid: String,
+    pub title: String,
+    pub harness: String,
+    pub model: String,
+    pub mtime: f64,
+    pub note: String,
+    pub archived: bool,
+}
+
+/// Interim history until M5: sessions beyond the sidebar window + archived tombstones.
+#[tauri::command]
+pub fn list_history(state: State<'_, Arc<AppState>>) -> Vec<HistoryRow> {
+    let settings = lock(&state.settings).clone();
+    let titles = lock(&state.titles).clone();
+    let archived = lock(&state.archived).clone();
+
+    // Wide unfiltered scan (hvscan-style) then apply source filter only.
+    let mut all = scan_sessions(HISTORY_MAX_AGE_HOURS, HISTORY_SCAN_LIMIT, None);
+    all.retain(|s| settings.source_enabled(&s.harness));
+    all.sort_by(|a, b| b.mtime.partial_cmp(&a.mtime).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Sidebar window = top LIMIT after archive filter (same as emit path).
+    let mut live = all.clone();
+    live.retain(|s| !archived::is_hidden(&archived, &s.sid, s.mtime));
+    let sidebar_sids: std::collections::HashSet<String> = live
+        .iter()
+        .take(LIMIT)
+        .map(|s| s.sid.clone())
+        .collect();
+
+    let mut rows: Vec<HistoryRow> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for s in &all {
+        if sidebar_sids.contains(&s.sid) && !archived::is_hidden(&archived, &s.sid, s.mtime) {
+            continue; // still on the board
+        }
+        let is_arch = archived::is_hidden(&archived, &s.sid, s.mtime);
+        let title = titles
+            .get(&s.sid)
+            .cloned()
+            .unwrap_or_else(|| s.title.clone());
+        rows.push(HistoryRow {
+            sid: s.sid.clone(),
+            title,
+            harness: s.harness.clone(),
+            model: s.model.clone(),
+            mtime: s.mtime,
+            note: if is_arch {
+                "archived".into()
+            } else {
+                s.age.clone()
+            },
+            archived: is_arch,
+        });
+        seen.insert(s.sid.clone());
+    }
+
+    // Archived tombstones whose transcript is gone from the wide scan.
+    for (sid, &at) in &archived {
+        if seen.contains(sid) {
+            continue;
+        }
+        let title = titles.get(sid).cloned().unwrap_or_else(|| sid.clone());
+        rows.push(HistoryRow {
+            sid: sid.clone(),
+            title,
+            harness: String::new(),
+            model: String::new(),
+            mtime: at,
+            note: "archived".into(),
+            archived: true,
+        });
+    }
+
+    rows.sort_by(|a, b| {
+        b.mtime
+            .partial_cmp(&a.mtime)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    rows
 }
 
 /// Effective wire state for a sid (approvals → needs_you), from snapshot or cache.
@@ -1155,6 +1374,8 @@ mod archive_tests {
             archived_path: Mutex::new(dir.join("archived.json")),
             titles: Mutex::new(TitlesMap::new()),
             titles_path: Mutex::new(dir.join("titles.json")),
+            settings: Mutex::new(Settings::default()),
+            settings_path: Mutex::new(dir.join("settings.json")),
             pending: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             yolo: Mutex::new(false),

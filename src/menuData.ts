@@ -1,47 +1,4 @@
-/** Command palette / menu static data (was in mockSessions). */
-
-export const HISTORY = [
-  {
-    when: "jul 08",
-    title: "refactor auth middleware to session tokens",
-    app: "claude code",
-    model: "fable-5",
-    num: "812K · $2.04",
-    note: "merged pr #214",
-  },
-  {
-    when: "jul 07",
-    title: "fix flaky retry test in ci",
-    app: "codex",
-    model: "gpt-5-codex",
-    num: "240K · $0.55",
-    note: "landed",
-  },
-  {
-    when: "jul 05",
-    title: "migrate dashboard to tailwind v4",
-    app: "cursor",
-    model: "sonnet-5",
-    num: "1.1M · $0",
-    note: "included · cursor pro",
-  },
-  {
-    when: "jul 04",
-    title: "rewrite queue consumer in go",
-    app: "claude code",
-    model: "opus-4.8",
-    num: "1.1M · $2.84",
-    note: "abandoned — kept node impl",
-  },
-  {
-    when: "jul 03",
-    title: "add rate limiting to public api",
-    app: "codex",
-    model: "gpt-5",
-    num: "410K · $0.74",
-    note: "merged pr #83",
-  },
-];
+/** Command palette / menu static data. */
 
 export const TARGETS = [
   { id: "opencode", label: "opencode", desc: "local cli · any provider" },
@@ -84,19 +41,9 @@ export const ROOT_CMDS = [
     desc: "spawn a reviewer on this session’s diff",
   },
   {
-    id: "loop",
-    label: "/loop",
-    desc: "keep re-running until you stop it",
-  },
-  {
     id: "broadcast",
     label: "/broadcast",
     desc: "send the prompt to every live session",
-  },
-  {
-    id: "handoff",
-    label: "/handoff",
-    desc: "move this session — context and all — to another harness",
   },
   {
     id: "new",
@@ -104,14 +51,9 @@ export const ROOT_CMDS = [
     desc: "start a fresh session — pick harness + model",
   },
   {
-    id: "worktree",
-    label: "/worktree",
-    desc: "move this session into a fresh git worktree",
-  },
-  {
     id: "compact",
     label: "/compact",
-    desc: "compact this session’s context window",
+    desc: "compact this session’s context window (claude tmux)",
   },
   {
     id: "kill",
@@ -140,19 +82,19 @@ export const PAL = [
   {
     id: "history",
     label: "history",
-    desc: "finished sessions — searchable, stored locally",
+    desc: "older + archived sessions — searchable",
   },
   {
     id: "archived",
     label: "archived",
     desc: "hidden sessions — unarchive to restore",
   },
-  { id: "usage", label: "usage", desc: "tokens & cost by model" },
-  { id: "access", label: "access", desc: "keys & subscriptions" },
+  { id: "usage", label: "usage", desc: "live session counts by harness" },
+  { id: "access", label: "access", desc: "keys & subscriptions (presence)" },
   {
     id: "settings",
     label: "settings",
-    desc: "notifications · sources · general",
+    desc: "sources · tv · launch at login",
   },
   { id: "tv", label: "tv", desc: "picture-in-picture youtube (⌘T)" },
   {
@@ -163,6 +105,6 @@ export const PAL = [
   {
     id: "broadcast",
     label: "/broadcast",
-    desc: "prompt every live session",
+    desc: "type /broadcast <prompt> in the bar",
   },
 ];

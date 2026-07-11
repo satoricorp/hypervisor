@@ -1,185 +1,113 @@
 import { useEffect, useState } from "react";
 import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
+import {
+  getAccess,
+  getSettings,
   getTranscript,
   listArchived,
+  listHistory,
+  setSettings,
   unarchiveSession,
+  type AccessRow,
+  type AppSettings,
   type ArchivedWire,
+  type HistoryRow,
   type TranscriptItem,
 } from "../api";
 import { CTL_HINT, STATE_META, iconOf } from "../constants";
-import { HISTORY } from "../menuData";
 import { useStore } from "../store";
 import { SubagentList } from "./SubagentList";
 import { SubTranscript, TranscriptView } from "./Transcript";
 
 function UsagePane() {
+  const { state } = useStore();
+  const counts: Record<string, number> = {};
+  for (const s of state.sessions) {
+    const k = s.app || "other";
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
       <h4>Usage</h4>
       <div className="tiles">
         <div className="tile">
-          <div className="lbl">API spend · today</div>
-          <div className="val">$4.51</div>
-          <div className="sub2">week $23.80</div>
+          <div className="lbl">Live sessions</div>
+          <div className="val">{state.total || state.sessions.length}</div>
+          <div className="sub2">on the board right now</div>
         </div>
-        <div className="tile">
-          <div className="lbl">API tokens</div>
-          <div className="val">2.41M</div>
-          <div className="sub2">in 1.9M · out 0.5M</div>
-        </div>
-        <div className="tile">
-          <div className="lbl">Subscription tokens</div>
-          <div className="val">3.04M</div>
-          <div className="sub2">$0 marginal</div>
-        </div>
-        <div className="tile">
-          <div className="lbl">Handoffs</div>
-          <div className="val">3</div>
-          <div className="sub2">opencode ×2 · codex ×1</div>
-        </div>
-      </div>
-      <h4>Cost by model — API · today</h4>
-      <div className="bars">
-        <div className="barrow">
-          <div className="name">
-            claude-fable-5 <span>· anthropic</span>
+        {rows.map(([harness, n]) => (
+          <div className="tile" key={harness}>
+            <div className="lbl">{harness}</div>
+            <div className="val">{n}</div>
+            <div className="sub2">live</div>
           </div>
-          <div className="track">
-            <div className="fill" style={{ width: "100%" }} />
-          </div>
-          <div className="num">
-            $2.04 <span>· 812K tok</span>
-          </div>
-        </div>
-        <div className="barrow">
-          <div className="name">
-            gpt-5 <span>· openai</span>
-          </div>
-          <div className="track">
-            <div className="fill" style={{ width: "58%" }} />
-          </div>
-          <div className="num">
-            $1.18 <span>· 640K tok</span>
-          </div>
-        </div>
-        <div className="barrow">
-          <div className="name">
-            claude-sonnet-5 <span>· anthropic</span>
-          </div>
-          <div className="track">
-            <div className="fill" style={{ width: "44%" }} />
-          </div>
-          <div className="num">
-            $0.89 <span>· 594K tok</span>
-          </div>
-        </div>
-        <div className="barrow">
-          <div className="name">
-            o4-mini <span>· openai</span>
-          </div>
-          <div className="track">
-            <div className="fill" style={{ width: "15%" }} />
-          </div>
-          <div className="num">
-            $0.31 <span>· 238K tok</span>
-          </div>
-        </div>
-        <div className="barrow">
-          <div className="name">
-            glm-5.2 <span>· opencode</span>
-          </div>
-          <div className="track">
-            <div className="fill" style={{ width: "5%" }} />
-          </div>
-          <div className="num">
-            $0.09 <span>· 126K tok</span>
-          </div>
-        </div>
-      </div>
-      <h4>Included in subscriptions</h4>
-      <div className="listrow">
-        <span>claude code</span>
-        <span className="dim">· claude max 20×</span>
-        <span className="tabnum">1.90M tok</span>
-        <span className="chip-inc">included</span>
-      </div>
-      <div className="listrow">
-        <span>codex</span>
-        <span className="dim">· chatgpt pro</span>
-        <span className="tabnum">0.73M tok</span>
-        <span className="chip-inc">included</span>
-      </div>
-      <div className="listrow">
-        <span>cursor</span>
-        <span className="dim">· cursor pro</span>
-        <span className="tabnum">0.41M tok</span>
-        <span className="chip-inc">included</span>
+        ))}
       </div>
       <p className="footnote">
-        costs approximate — token counts from session logs; pricing synced jul
-        2026.
+        cost ledger lands with M6 — no fake dollar numbers. counts are live
+        from the session adapters.
       </p>
     </div>
   );
 }
 
 function AccessPane() {
+  const [rows, setRows] = useState<AccessRow[] | null>(null);
+  useEffect(() => {
+    void getAccess()
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, []);
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
       <h4>Keys &amp; subscriptions</h4>
-      <div className="listrow">
-        <span className="grow">ANTHROPIC_API_KEY</span>
-        <span className="dim">env · ~/.zshrc</span>
-        <span className="dim">sk-ant-…4Q2A</span>
-        <span className="tabnum st-done">● active</span>
-      </div>
-      <div className="listrow">
-        <span className="grow">OPENAI_API_KEY</span>
-        <span className="dim">keychain</span>
-        <span className="dim">sk-proj-…9fKM</span>
-        <span className="tabnum st-done">● active</span>
-      </div>
-      <div className="listrow">
-        <span className="grow">claude max 20×</span>
-        <span className="dim">subscription</span>
-        <span className="dim">renews aug 3</span>
-        <span className="tabnum st-done">● active</span>
-      </div>
-      <div className="listrow">
-        <span className="grow">chatgpt pro</span>
-        <span className="dim">subscription</span>
-        <span className="dim">renews jul 22</span>
-        <span className="tabnum st-done">● active</span>
-      </div>
-      <div className="listrow">
-        <span className="grow">cursor pro</span>
-        <span className="dim">subscription</span>
-        <span className="dim">renews jul 30</span>
-        <span className="tabnum st-done">● active</span>
-      </div>
-      <div className="listrow">
-        <span className="grow dim">OPENROUTER_API_KEY</span>
-        <span className="dim">env</span>
-        <span className="dim">not found</span>
-        <span className="tabnum dim">○ missing</span>
-      </div>
+      {rows === null ? (
+        <div className="listrow">
+          <span className="cd">probing…</span>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="listrow">
+          <span className="dim">nothing detected</span>
+        </div>
+      ) : (
+        rows.map((r) => (
+          <div className="listrow" key={`${r.label}-${r.kind}`}>
+            <span className={`grow ${r.present ? "" : "dim"}`}>{r.label}</span>
+            <span className="dim">{r.kind}</span>
+            <span className="dim">{r.detail}</span>
+            <span className={`tabnum ${r.present ? "st-done" : "dim"}`}>
+              {r.present ? "● present" : "○ missing"}
+            </span>
+          </div>
+        ))
+      )}
       <p className="footnote">
-        read-only — hypervisor never stores key material, never proxies or
-        resells tokens: your keys, your subscriptions, zero markup.
+        presence only — hypervisor never stores key material, never proxies or
+        resells tokens. unverifiable rows are omitted, not invented.
       </p>
     </div>
   );
 }
 
-function Switch({ initialOn = false }: { initialOn?: boolean }) {
-  const [on, setOn] = useState(initialOn);
+function Switch({
+  on,
+  onToggle,
+}: {
+  on: boolean;
+  onToggle: () => void;
+}) {
   return (
     <button
       type="button"
       className={`switch ${on ? "on" : ""}`}
-      onClick={() => setOn((v) => !v)}
+      onClick={onToggle}
     >
       <i />
     </button>
@@ -244,72 +172,216 @@ function RemoteSettings() {
 }
 
 function SettingsPane() {
+  const { dispatch } = useStore();
+  const [settings, setLocal] = useState<AppSettings | null>(null);
+  const [autostart, setAutostart] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void getSettings()
+      .then(setLocal)
+      .catch((e) => dispatch({ type: "TOAST", label: String(e) }));
+    void isAutostartEnabled()
+      .then(setAutostart)
+      .catch(() => setAutostart(false));
+  }, [dispatch]);
+
+  async function patch(next: AppSettings) {
+    setLocal(next);
+    try {
+      const saved = await setSettings(next);
+      setLocal(saved);
+    } catch (e) {
+      dispatch({ type: "TOAST", label: String(e) });
+    }
+  }
+
+  async function toggleAutostart() {
+    try {
+      if (autostart) {
+        await disableAutostart();
+        setAutostart(false);
+      } else {
+        await enableAutostart();
+        setAutostart(true);
+      }
+    } catch (e) {
+      dispatch({ type: "TOAST", label: String(e) });
+    }
+  }
+
+  if (!settings) {
+    return (
+      <div className="pane">
+        <span className="escnote">esc ↩ session</span>
+        <h4>Settings</h4>
+        <p className="footnote">loading…</p>
+      </div>
+    );
+  }
+
+  const src = settings.sources;
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
       <RemoteSettings />
-      <h4>Notifications</h4>
-      <div className="listrow">
-        <span>notify when a session responds</span>
-        <span className="dim">notification center</span>
-        <Switch initialOn />
-      </div>
-      <div className="listrow">
-        <span>play sound on done</span>
-        <span className="dim">ping</span>
-        <Switch initialOn />
-      </div>
       <h4>Sources</h4>
-      <div className="listrow">
-        <span>claude code</span>
-        <span className="dim">hooks + transcripts</span>
-        <Switch initialOn />
-      </div>
-      <div className="listrow">
-        <span>codex</span>
-        <span className="dim">session files</span>
-        <Switch initialOn />
-      </div>
-      <div className="listrow">
-        <span>opencode</span>
-        <span className="dim">http api</span>
-        <Switch initialOn />
-      </div>
-      <div className="listrow">
-        <span>cursor</span>
-        <span className="dim">state.vscdb</span>
-        <Switch initialOn />
-      </div>
-      <div className="listrow">
-        <span>claude.ai</span>
-        <span className="dim">browser extension — not installed</span>
-        <Switch />
-      </div>
+      {(
+        [
+          ["claude", "claude code", "hooks + transcripts"],
+          ["codex", "codex", "session files"],
+          ["opencode", "opencode", "http api"],
+          ["cursor", "cursor", "state.vscdb"],
+        ] as const
+      ).map(([key, label, dim]) => (
+        <div className="listrow" key={key}>
+          <span>{label}</span>
+          <span className="dim">{dim}</span>
+          <Switch
+            on={src[key]}
+            onToggle={() =>
+              void patch({
+                ...settings,
+                sources: { ...src, [key]: !src[key] },
+              })
+            }
+          />
+        </div>
+      ))}
+      <p className="footnote">
+        disabled sources are skipped in the sidebar — owned tmux sessions keep
+        running; re-enable to see them again.
+      </p>
       <h4>General</h4>
       <div className="listrow">
-        <span>auto-worktree when a repo is busy</span>
-        <span className="dim">
-          new session in an occupied repo gets its own worktree
-        </span>
-        <Switch initialOn />
+        <span>tv: pause when a session needs me</span>
+        <span className="dim">interrupts the youtube pip</span>
+        <Switch
+          on={settings.tv_pause_on_needs_you}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              tv_pause_on_needs_you: !settings.tv_pause_on_needs_you,
+            })
+          }
+        />
       </div>
       <div className="listrow">
         <span>launch at login</span>
-        <Switch initialOn />
+        <span className="dim">macos login item</span>
+        <Switch
+          on={!!autostart}
+          onToggle={() => void toggleAutostart()}
+        />
       </div>
-      <p className="footnote">mocked — toggles flip but persist nothing.</p>
+      <p className="footnote">
+        settings.json in app data · notifications return with M7 ·
+        auto-worktree returns with M4
+      </p>
+    </div>
+  );
+}
+
+function formatWhen(mtime: number): string {
+  const d = new Date(mtime * 1000);
+  if (Number.isNaN(d.getTime())) return "—";
+  const now = Date.now();
+  const diff = now - d.getTime();
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function HistoryDetail({
+  sid,
+  title,
+  onBack,
+}: {
+  sid: string;
+  title: string;
+  onBack: () => void;
+}) {
+  const [items, setItems] = useState<TranscriptItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void getTranscript(sid, 400)
+      .then((rows) => {
+        if (!cancelled) setItems(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sid]);
+
+  // Minimal session stub for TranscriptView.
+  const stub = {
+    app: "",
+    model: "",
+    title,
+    sent: "",
+    state: "done" as const,
+    ctl: "observe" as const,
+    subs: [],
+    sid,
+  };
+
+  return (
+    <div className="pane">
+      <span className="escnote">esc ↩ history</span>
+      <button type="button" className="archbtn" onClick={onBack}>
+        ← history
+      </button>
+      <h4>{title}</h4>
+      <TranscriptView session={stub} items={items} loading={loading} />
+      <p className="footnote">read-only · M5 replaces this with sqlite + summaries</p>
     </div>
   );
 }
 
 function HistoryPane() {
   const { state, dispatch } = useStore();
+  const [rows, setRows] = useState<HistoryRow[] | null>(null);
+  const [detail, setDetail] = useState<{ sid: string; title: string } | null>(
+    null,
+  );
   const q = state.historyFilter.toLowerCase();
-  const rows = HISTORY.filter(
+
+  useEffect(() => {
+    void listHistory()
+      .then(setRows)
+      .catch((e) => {
+        dispatch({ type: "TOAST", label: String(e) });
+        setRows([]);
+      });
+  }, [dispatch]);
+
+  if (detail) {
+    return (
+      <HistoryDetail
+        sid={detail.sid}
+        title={detail.title}
+        onBack={() => setDetail(null)}
+      />
+    );
+  }
+
+  const filtered = (rows ?? []).filter(
     (h) =>
       !q ||
-      [h.title, h.note, h.model, h.app].join(" ").toLowerCase().includes(q),
+      [h.title, h.note, h.model, h.harness, h.sid]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
   );
+
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
@@ -327,26 +399,49 @@ function HistoryPane() {
         }
       />
       <div id="hrows">
-        {rows.map((h, i) => (
-          <div key={i} className="listrow">
-            <span className="dim" style={{ width: 88, flex: "none" }}>
-              {h.when}
-            </span>
-            <span className="grow">{h.title}</span>
-            <span className="dim grow">{h.note}</span>
-            <span className="tabnum">{h.num}</span>
-            <span className="modelchip">{h.model}</span>
-            <span
-              className="hicon"
-              title={h.app}
-              dangerouslySetInnerHTML={{ __html: iconOf(h.app) }}
-            />
+        {rows === null ? (
+          <div className="listrow">
+            <span className="cd">loading…</span>
           </div>
-        ))}
+        ) : filtered.length === 0 ? (
+          <div className="listrow">
+            <span className="dim">no older sessions</span>
+          </div>
+        ) : (
+          filtered.map((h) => (
+            <div
+              key={h.sid}
+              className="listrow"
+              role="button"
+              tabIndex={0}
+              style={{ cursor: "pointer" }}
+              onClick={() => setDetail({ sid: h.sid, title: h.title })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  setDetail({ sid: h.sid, title: h.title });
+                }
+              }}
+            >
+              <span className="dim" style={{ width: 88, flex: "none" }}>
+                {formatWhen(h.mtime)}
+              </span>
+              <span className="grow">{h.title}</span>
+              <span className="dim grow">{h.note}</span>
+              {h.model ? <span className="modelchip">{h.model}</span> : null}
+              {h.harness ? (
+                <span
+                  className="hicon"
+                  title={h.harness}
+                  dangerouslySetInnerHTML={{ __html: iconOf(h.harness) }}
+                />
+              ) : null}
+            </div>
+          ))
+        )}
       </div>
       <p className="footnote">
-        stored locally — sqlite at ~/Library/Application
-        Support/Hypervisor/history.db · export as jsonl
+        interim — older than the sidebar window + archived tombstones. M5
+        replaces this with sqlite + summaries.
       </p>
     </div>
   );

@@ -16,8 +16,11 @@ import {
   approveSession,
   archiveIdle,
   archiveSession,
+  broadcastPrompt,
+  compactSession,
   denySession,
   getYolo,
+  killSession,
   listSessions,
   renameSession,
   sendPrompt,
@@ -44,11 +47,25 @@ function menuItemsFor(state: AppState): MenuItem[] {
     const idleCount = state.sessions.filter(
       (s) => s.state === "done" || s.state === "error",
     ).length;
+    const sel = state.sessions[state.sel];
     return ROOT_CMDS.filter((c) => {
+      // /compact only for claude tmux sessions.
+      if (c.id === "compact") {
+        if (sel?.ctl !== "tmux") return false;
+        if (sel.app !== "claude code" && sel.app !== "claude") return false;
+      }
+      // /kill only for owned tmux.
+      if (c.id === "kill" && sel?.ctl !== "tmux") return false;
       const label = c.label.slice(1).toLowerCase(); // without leading /
       // Trailing-text commands: match prefix word so `/rename foo` still hits.
       if (c.id === "rename") {
         return f === "rename" || f.startsWith("rename ");
+      }
+      if (c.id === "plan") {
+        return f === "plan" || f.startsWith("plan ");
+      }
+      if (c.id === "broadcast") {
+        return f === "broadcast" || f.startsWith("broadcast ");
       }
       return label.startsWith(f);
     }).map((c) => {
@@ -68,6 +85,24 @@ function menuItemsFor(state: AppState): MenuItem[] {
           desc: arg
             ? `rename to “${arg}”`
             : 'usage: /rename <title> · "/rename -" reverts',
+        };
+      }
+      if (c.id === "plan") {
+        const arg = prompt.replace(/^\/plan\s*/i, "");
+        return {
+          ...c,
+          desc: arg
+            ? `plan: ${arg.slice(0, 60)}${arg.length > 60 ? "…" : ""}`
+            : "usage: /plan <prompt> — parks execution until you approve",
+        };
+      }
+      if (c.id === "broadcast") {
+        const arg = prompt.replace(/^\/broadcast\s*/i, "");
+        return {
+          ...c,
+          desc: arg
+            ? `broadcast to controllable sessions`
+            : "usage: /broadcast <prompt>",
         };
       }
       return c;
@@ -376,11 +411,12 @@ export function reducer(state: AppState, action: Action): AppState {
         if (
           it.id === "plan" ||
           it.id === "review" ||
-          it.id === "loop" ||
-          it.id === "worktree" ||
-          it.id === "broadcast"
+          it.id === "broadcast" ||
+          it.id === "kill" ||
+          it.id === "compact"
         ) {
-          return toast(next, "lands in M3/M4");
+          // Side effect in chooseMenu.
+          return next;
         }
         if (it.id === "archive" || it.id === "archive-idle") {
           // Side effect in chooseMenu → doArchive / doArchiveIdle.
@@ -390,7 +426,7 @@ export function reducer(state: AppState, action: Action): AppState {
           // Side effect in chooseMenu → doRename (needs trailing text).
           return next;
         }
-        return toast(next, `/${it.id}`, "concept only, not wired yet");
+        return toast(next, `/${it.id}`, "not wired");
       }
       if (state.menu.step === "target") {
         return withMenuItems({
@@ -433,7 +469,11 @@ export function reducer(state: AppState, action: Action): AppState {
         });
       }
       if (it.id === "broadcast") {
-        return toast({ ...next, view: "session" }, "lands in M3/M4");
+        return toast(
+          { ...next, view: "session" },
+          "usage: /broadcast <prompt>",
+          "type it in the prompt bar",
+        );
       }
       if (it.id === "tv") {
         // side effect (window toggle) happens at the dispatch sites
@@ -790,7 +830,7 @@ export async function doSend(
   }
 }
 
-/** Choose menu item — may kick off spawn or archive. */
+/** Choose menu item — may kick off spawn, archive, or REALIZE commands. */
 export function chooseMenu(
   state: AppState,
   dispatch: Dispatch<Action>,
@@ -823,8 +863,180 @@ export function chooseMenu(
       void doRename(state, dispatch, arg);
       return;
     }
+    if (it.id === "plan") {
+      const arg = state.prompt.replace(/^\/plan\s*/i, "").trim();
+      dispatch({ type: "CHOOSE_MENU" });
+      void doPlan(state, dispatch, arg);
+      return;
+    }
+    if (it.id === "broadcast") {
+      const arg = state.prompt.replace(/^\/broadcast\s*/i, "").trim();
+      dispatch({ type: "CHOOSE_MENU" });
+      void doBroadcast(dispatch, arg);
+      return;
+    }
+    if (it.id === "review") {
+      dispatch({ type: "CHOOSE_MENU" });
+      void doReview(state, dispatch);
+      return;
+    }
+    if (it.id === "kill") {
+      dispatch({ type: "CHOOSE_MENU" });
+      void doKill(state, dispatch);
+      return;
+    }
+    if (it.id === "compact") {
+      dispatch({ type: "CHOOSE_MENU" });
+      void doCompact(state, dispatch);
+      return;
+    }
   }
   dispatch({ type: "CHOOSE_MENU" });
+}
+
+const PLAN_PREFIX =
+  "Plan first — do not execute any tools or make any changes until I approve the plan. Write a concrete plan for:\n\n";
+
+const REVIEW_PROMPT =
+  "Review the current git diff in this working directory. Focus on bugs, regressions, and missing tests. Do not modify files unless asked.";
+
+/** /plan <prompt> — prefix + send; M3 approval flow parks tool execution. */
+export async function doPlan(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+  arg: string,
+): Promise<void> {
+  if (!arg) {
+    dispatch({
+      type: "TOAST",
+      label: "usage: /plan <prompt>",
+    });
+    return;
+  }
+  const s = state.sessions[state.sel];
+  if (!s?.sid) {
+    dispatch({ type: "TOAST", label: "no session selected" });
+    return;
+  }
+  if (s.ctl === "observe") {
+    dispatch({
+      type: "TOAST",
+      label: "adopt first",
+      detail: "observe-only — press ⏎ to adopt",
+    });
+    return;
+  }
+  const text = PLAN_PREFIX + arg;
+  try {
+    await sendPrompt(s.sid, text);
+    dispatch({ type: "OPTIMISTIC_SENT", i: state.sel, text });
+    dispatch({
+      type: "TOAST",
+      label: "plan requested",
+      detail: "execution waits on your approval",
+    });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
+}
+
+/** /broadcast <prompt> — every controllable session. */
+export async function doBroadcast(
+  dispatch: Dispatch<Action>,
+  arg: string,
+): Promise<void> {
+  if (!arg) {
+    dispatch({ type: "TOAST", label: "usage: /broadcast <prompt>" });
+    return;
+  }
+  try {
+    const results = await broadcastPrompt(arg);
+    const ok = results.filter((r) => r.ok).length;
+    const fail = results.length - ok;
+    dispatch({
+      type: "TOAST",
+      label: `broadcast ${ok} ok${fail ? ` · ${fail} failed` : ""}`,
+      detail: results
+        .map((r) => `${r.title.slice(0, 24)}: ${r.ok ? "ok" : r.detail}`)
+        .join(" · "),
+    });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
+}
+
+/** /review — spawn a reviewer in the parent's cwd with a canned prompt. */
+export async function doReview(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const parent = state.sessions[state.sel];
+  const cwd = parent?.cwd || null;
+  const harness = "claude code";
+  const model = "claude-sonnet-5";
+  const before = new Set(
+    state.sessions.filter((s) => s.ctl === "tmux" && s.sid).map((s) => s.sid!),
+  );
+  try {
+    const name = await spawnSession(harness, model, cwd);
+    dispatch({
+      type: "TOAST",
+      label: name,
+      detail: "reviewer spawning…",
+    });
+    const sid = await waitForOwnedSid(before, 15_000);
+    if (!sid) {
+      dispatch({
+        type: "TOAST",
+        label: "reviewer timed out",
+        detail: "send the review prompt manually",
+      });
+      return;
+    }
+    await sendPrompt(sid, REVIEW_PROMPT);
+    dispatch({
+      type: "TOAST",
+      label: `review → ${sid.slice(0, 8)}`,
+    });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
+}
+
+/** /kill — tmux kill-session + owned.json cleanup. */
+export async function doKill(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const s = state.sessions[state.sel];
+  if (!s?.sid) {
+    dispatch({ type: "TOAST", label: "nothing to kill" });
+    return;
+  }
+  try {
+    const msg = await killSession(s.sid);
+    dispatch({ type: "TOAST", label: msg });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
+}
+
+/** /compact — claude tmux only. */
+export async function doCompact(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const s = state.sessions[state.sel];
+  if (!s?.sid) {
+    dispatch({ type: "TOAST", label: "nothing to compact" });
+    return;
+  }
+  try {
+    const msg = await compactSession(s.sid);
+    dispatch({ type: "TOAST", label: msg });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
 }
 
 /** /rename <title> — local override; "-" or empty clears. */

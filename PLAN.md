@@ -29,10 +29,10 @@ file directly:
   transcript view, collapsible tools, gray thinking, rename; absorbs TITLES
   Part 2; done 2026-07-10) → `tasks/REALIZE.md` (gate: PARITY —
   every control real or removed: settings, access, history-interim, stub
-  commands; = CURRENT as of 2026-07-10). Also queued: `tasks/M8b.md` (gate: M8a). TITLES is superseded
+  commands; done 2026-07-10) → `tasks/M8b.md` (gate: M8a). TITLES is superseded
   (Part 1 shipped by planner, Part 2 folded into PARITY). M4/M5/M6 can
-  interleave — M6 may be executed inside REALIZE (its bullet stands either
-  way). Each task's "When done" names the next file to copy into CURRENT.md.
+  interleave — Access presence shipped inside REALIZE; M6 cost ledger still
+  stands. Each task's "When done" names the next file to copy into CURRENT.md.
 
 ## References (read in this order)
 
@@ -248,6 +248,14 @@ with Tab and proceeds. *Open AC closed in M3x (live pane + approve/deny proof).*
   loop untouched); collapsible tool calls; gray thinking when nonempty;
   `/rename` + `titles.json` overrides; dogfood friction ledger. Absorbs
   TITLES Part 2. Task file: `tasks/PARITY.md`.
+
+- [x] **REALIZE — nothing mock stays.** Settings persist (`settings.json` +
+  autostart plugin); source toggles gate the sidebar; tv-pause setting
+  gates `tv_interrupt`; Access is presence-only; History interim from
+  wide scan + archived; Usage is live counts (M6 ledger deferred);
+  `/broadcast` `/review` `/plan` `/kill` `/compact` real; `/loop`
+  `/worktree` `/handoff` + notification rows removed until their
+  milestones. Task file: `tasks/REALIZE.md`.
 
 - [x] **M7g — the grammar core.** Extracted from M7 so remote doesn't wait on
   tray/notification plumbing: the shared backend grammar

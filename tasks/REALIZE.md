@@ -82,4 +82,87 @@ Commit: `REALIZE: every control real or removed — settings, access, history, c
 
 ## Evidence
 
-(builder fills this in)
+### Pre-change audit (2026-07-10)
+
+| Surface | Was fake | Disposition |
+|---|---|---|
+| Settings: launch at login | decorative Switch | **made-real** — `tauri-plugin-autostart` |
+| Settings: tv pause on needs_you | missing | **made-real** — `settings.json` + gate in `tv_interrupt` |
+| Settings: sources (claude/codex/cursor/opencode) | decorative | **made-real** — filter in emit path |
+| Settings: notify / sound / dock badge | decorative | **removed** → returns with M7 |
+| Settings: auto-worktree | decorative | **removed** → returns with M4 |
+| Settings: claude.ai source | decorative / no adapter | **removed** |
+| Usage pane + `$4.51 · 2.41 MTOK` ticker | hard-coded dollars | **replaced** with live session counts; M6 ledger deferred |
+| Access pane | fake keys (`sk-ant-…`) + fake renew dates | **made-real** — presence only |
+| History pane | `HISTORY` mock constant | **made-real** interim — wide scan + archived |
+| `/broadcast` `/review` `/plan` `/kill` `/compact` | "lands in M3/M4" toast | **made-real** |
+| `/loop` `/worktree` `/handoff` | stub toasts | **removed** from menu |
+| Remote settings | already real (M8a) | **real-verified** |
+| Archive / rename / yolo / tv palette | already real | **real-verified** (untouched) |
+
+`rg '$4.51|2.41 MTOK|mocked —|lands in M3|HISTORY =' src` → no matches.
+
+### Made-real proofs
+
+**settings.json** — `control::settings::tests::load_save_roundtrip` OK.
+Shape: `{ tv_pause_on_needs_you, sources: {claude,codex,cursor,opencode} }`.
+DECISION: disabled-source rows (including owned) vanish from the sidebar;
+tmux keeps running; re-enable to see them. Filter is in
+`apply_approvals_to_snapshot` (hvscan stays raw).
+
+**Access** (this machine, presence only — no values returned):
+```
+OPENAI_API_KEY env=set (login shell)
+ANTHROPIC_API_KEY / OPENROUTER_API_KEY = missing
+claude subscription: organizationType=claude_max · default_claude_max_20x
+codex: auth_mode=chatgpt · OPENAI_API_KEY name present in auth.json (value not read)
+cursor-access-token keychain exit=0
+```
+`access::tests::probe_returns_rows_without_panic` asserts no `sk-` in details.
+
+**History** — `list_history` wide-scans 30d/200, drops sidebar top-8, adds
+archived tombstones. Click → read-only `get_transcript`. hvscan shows real
+older sessions on disk.
+
+**/compact** — tmux `-L hypervisor` send-keys `/compact` → pane captured
+literal `/compact`. Menu only offers it for claude tmux.
+
+**/kill** — throwaway `hv-realize-proof` killed; `has-session` fails after.
+`kill_session` now also removes owned.json + re-emits.
+
+**/broadcast /plan /review** — wired to `broadcast_prompt` / prefixed
+`send_prompt` / `spawn_session`+canned review prompt. Plan prefix parks
+execution via existing M3 approval flow when tools are requested.
+
+**Autostart** — plugin registered + capabilities
+(`autostart:allow-enable/disable/is-enabled`). No LaunchAgent until the
+user toggles in-app (expected).
+
+**tv pause** — `tv_interrupt` early-returns when
+`settings.tv_pause_on_needs_you == false`.
+
+### Verification
+
+```
+python3 spike/compare.py --limit 20  → OK (38 sessions, 0 diffs)
+bunx tsc --noEmit                    → OK
+cargo test --lib                     → 39 passed, 3 ignored
+bun run build (tsc+vite)             → OK
+cargo build                          → OK
+```
+
+### Removed → milestone that restores
+
+| Removed | Returns with |
+|---|---|
+| Notification rows (notify/sound/badge) | M7 |
+| auto-worktree settings toggle | M4 |
+| `/loop` | (future loop milestone / M4+) |
+| `/worktree` | M4 |
+| `/handoff` | (future) |
+| Fake dollar Usage ledger | M6 |
+| claude.ai source row | never (no adapter) |
+
+### Next queue file
+
+`tasks/M8b.md` (gate: M8a — already ticked). Copied into `tasks/CURRENT.md`.

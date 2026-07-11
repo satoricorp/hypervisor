@@ -1,3 +1,4 @@
+mod access;
 mod adapters;
 pub mod approvals;
 pub mod control;
@@ -18,9 +19,10 @@ pub use registry::{
 
 use control::adopt::adopt_session;
 use events::{
-    approve_session, archive_idle, archive_session, deny_session, get_transcript, get_yolo,
-    kill_session, list_archived, list_sessions, rename_session, send_prompt, set_yolo,
-    spawn_session, start_watcher, unarchive_session, AppState,
+    approve_session, archive_idle, archive_session, broadcast_prompt, compact_session,
+    deny_session, get_access, get_settings, get_transcript, get_yolo, kill_session, list_archived,
+    list_history, list_sessions, rename_session, send_prompt, set_settings, set_yolo, spawn_session,
+    start_watcher, unarchive_session, AppState,
 };
 use remote::remote_status;
 use stable_ids::StableIds;
@@ -28,11 +30,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
+use tauri_plugin_autostart::MacosLauncher;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -44,6 +51,8 @@ pub fn run() {
             let archived_map = control::archived::load(&archived_path);
             let titles_path = data_dir.join("titles.json");
             let titles_map = control::titles::load(&titles_path);
+            let settings_path = data_dir.join("settings.json");
+            let settings = control::settings::load(&settings_path);
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
                 total: std::sync::Mutex::new(0),
@@ -54,6 +63,8 @@ pub fn run() {
                 archived_path: std::sync::Mutex::new(archived_path),
                 titles: std::sync::Mutex::new(titles_map),
                 titles_path: std::sync::Mutex::new(titles_path),
+                settings: std::sync::Mutex::new(settings),
+                settings_path: std::sync::Mutex::new(settings_path),
                 pending: std::sync::Mutex::new(HashMap::new()),
                 approvals: std::sync::Mutex::new(HashMap::new()),
                 yolo: std::sync::Mutex::new(false),
@@ -79,6 +90,8 @@ pub fn run() {
             spawn_session,
             send_prompt,
             kill_session,
+            compact_session,
+            broadcast_prompt,
             adopt_session,
             approve_session,
             deny_session,
@@ -90,6 +103,10 @@ pub fn run() {
             archive_idle,
             get_transcript,
             rename_session,
+            get_settings,
+            set_settings,
+            get_access,
+            list_history,
             remote_status,
             tv::toggle_tv,
             tv::tv_interrupt

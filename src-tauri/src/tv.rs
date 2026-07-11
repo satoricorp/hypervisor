@@ -104,8 +104,23 @@ pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
 
 /// Pause the video and show/refresh the interrupt strip inside the tv window.
 /// Best-effort: if YouTube's DOM shifts, the strip still shows (design/tv.md).
+/// Gated by settings.tv_pause_on_needs_you (REALIZE).
 #[tauri::command]
-pub fn tv_interrupt(app: AppHandle, title: String, detail: String) -> Result<(), String> {
+pub fn tv_interrupt(
+    app: AppHandle,
+    state: tauri::State<'_, std::sync::Arc<crate::events::AppState>>,
+    title: String,
+    detail: String,
+) -> Result<(), String> {
+    {
+        let settings = state
+            .settings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if !settings.tv_pause_on_needs_you {
+            return Ok(());
+        }
+    }
     let Some(w) = app.get_webview_window(LABEL) else {
         return Ok(()); // no tv, no interrupt — never an error
     };

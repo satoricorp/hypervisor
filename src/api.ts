@@ -137,3 +137,71 @@ export async function renameSession(
 ): Promise<string> {
   return invoke<string>("rename_session", { sid, title });
 }
+
+export async function killSession(sid: string): Promise<string> {
+  return invoke<string>("kill_session", { sid });
+}
+
+export async function compactSession(sid: string): Promise<string> {
+  return invoke<string>("compact_session", { sid });
+}
+
+export interface BroadcastResult {
+  sid: string;
+  title: string;
+  ok: boolean;
+  detail: string;
+}
+
+export async function broadcastPrompt(
+  text: string,
+): Promise<BroadcastResult[]> {
+  return invoke<BroadcastResult[]>("broadcast_prompt", { text });
+}
+
+export interface SourceToggles {
+  claude: boolean;
+  codex: boolean;
+  cursor: boolean;
+  opencode: boolean;
+}
+
+export interface AppSettings {
+  tv_pause_on_needs_you: boolean;
+  sources: SourceToggles;
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  return invoke<AppSettings>("get_settings");
+}
+
+export async function setSettings(
+  settings: AppSettings,
+): Promise<AppSettings> {
+  return invoke<AppSettings>("set_settings", { settings });
+}
+
+export interface AccessRow {
+  label: string;
+  kind: string;
+  detail: string;
+  present: boolean;
+}
+
+export async function getAccess(): Promise<AccessRow[]> {
+  return invoke<AccessRow[]>("get_access");
+}
+
+export interface HistoryRow {
+  sid: string;
+  title: string;
+  harness: string;
+  model: string;
+  mtime: number;
+  note: string;
+  archived: boolean;
+}
+
+export async function listHistory(): Promise<HistoryRow[]> {
+  return invoke<HistoryRow[]>("list_history");
+}
