@@ -57,7 +57,11 @@ file directly:
    user's env/keychain; requests go direct from each harness to its vendor.
    Hypervisor reads key *presence*, never stores key material.
 3. **Local-first.** All state (history, settings, summaries) lives on disk in
-   the user's Library folder. No telemetry, no cloud dependency.
+   the user's Library folder. No cloud dependency. No undisclosed or
+   content-bearing telemetry — the only analytics are PostHog events that
+   are names/counts only (schema: tasks/POSTHOG.md), gated by a Settings
+   toggle; session titles, prompts, commands, paths, and transcripts never
+   leave the machine. (Amended from "no telemetry" by Joe, 2026-07-11.)
 4. **Not an editor.** No diff-merge UI, no code editing, no chat client. Done
    sessions link out (open PR, open in editor); they are not edited here.
 
