@@ -21,7 +21,7 @@ only.
 - Reference pipeline: `~/git/gx/.github/workflows/macos-release.yaml` —
   build → `aws s3 cp` (latest + `releases/$SHA/` archival) → CloudFront
   domain. Copy its shape; secrets already exist in the satoricorp GitHub org.
-- This repo's remote: `github.com/satoricorp/spf` (private).
+- This repo's remote: `github.com/satoricorp/hypervisor` (private).
 - **No Apple Developer ID on this machine** (`security find-identity` → 0).
   Phase 1 ships unsigned; Phase 2 gates on Joe enrolling
   (developer.apple.com, $99/yr).
