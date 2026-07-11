@@ -31,7 +31,11 @@ file directly:
   every control real or removed: settings, access, history-interim, stub
   commands; done 2026-07-10) → `tasks/M8b.md` (gate: M8a; done 2026-07-11).
   TITLES is superseded (Part 1 shipped by planner, Part 2 folded into PARITY).
-  **Next: M4 (worktrees) — planner writes the task file.** M4/M5/M6 can
+  Also queued: `tasks/DEPLOY.md` (gate: REALIZE ✓ — hypervisor.sh static
+  site + release pipeline; Phase 2 signing gates on Joe's Apple Developer
+  enrollment; the phone/remote server is NEVER deployed publicly).
+  **Next: DEPLOY or M4 (worktrees) — M4 task file still to be written.**
+  M4/M5/M6 can
   interleave — Access presence shipped inside REALIZE; M6 cost ledger still
   stands. Each task's "When done" names the next file to copy into CURRENT.md.
 
