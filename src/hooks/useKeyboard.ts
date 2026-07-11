@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { toggleTv } from "../api";
 import { chooseMenu, doApprove, doSend, useStore } from "../store";
 
 /**
@@ -49,6 +50,11 @@ export function useKeyboard() {
           const it = state.palette.items[state.palette.active];
           if (it?.id === "subagents") {
             requestAnimationFrame(() => promptRef.current?.focus());
+          }
+          if (it?.id === "tv") {
+            toggleTv().catch((err) =>
+              dispatch({ type: "TOAST", label: "tv", detail: String(err) }),
+            );
           }
         }
         return;

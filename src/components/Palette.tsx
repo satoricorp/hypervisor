@@ -1,3 +1,4 @@
+import { toggleTv } from "../api";
 import { useStore } from "../store";
 
 export function Palette() {
@@ -38,6 +39,11 @@ export function Palette() {
                   dispatch({ type: "CHOOSE_PAL" });
                   if (it.id === "subagents") {
                     requestAnimationFrame(() => promptRef.current?.focus());
+                  }
+                  if (it.id === "tv") {
+                    toggleTv().catch((err) =>
+                      dispatch({ type: "TOAST", label: "tv", detail: String(err) }),
+                    );
                   }
                 }}
               >

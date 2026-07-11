@@ -79,3 +79,7 @@ export async function waitForOwnedSid(
   }
   return null;
 }
+
+export async function toggleTv(): Promise<boolean> {
+  return invoke<boolean>("toggle_tv");
+}

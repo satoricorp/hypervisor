@@ -91,3 +91,6 @@ has no title field (checked live). Adapters + spike moved in lockstep;
 compare.py OK at 41/41 (an initial 2v2 mismatch was per-harness limit churn
 on a busy machine — two live agents writing during the run — not divergence).
 **This task is now Part 2 only: the rename override + /rename.** Same gate.
+
+**SUPERSEDED (2026-07-10):** Part 1 shipped by the planner (commit 5e7ee2c);
+Part 2 (rename) is folded into tasks/PARITY.md. Do not execute this file.

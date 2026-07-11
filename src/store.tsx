@@ -394,6 +394,10 @@ export function reducer(state: AppState, action: Action): AppState {
       if (it.id === "broadcast") {
         return toast({ ...next, view: "session" }, "lands in M3/M4");
       }
+      if (it.id === "tv") {
+        // side effect (window toggle) happens at the dispatch sites
+        return next;
+      }
       return { ...next, view: it.id as ViewName };
     }
     case "START_NEW_AGENT":

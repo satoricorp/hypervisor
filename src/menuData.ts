@@ -134,6 +134,7 @@ export const PAL = [
     label: "settings",
     desc: "notifications · sources · general",
   },
+  { id: "tv", label: "tv", desc: "picture-in-picture youtube (⌘T)" },
   {
     id: "subagents",
     label: "/subagents",

@@ -25,10 +25,14 @@ file directly:
   `tasks/M8a.md` (gate: M7g). Also queued: `tasks/TV.md` (gate: M3),
   `tasks/M7.md` (gate: M7g — re-scoped, grammar extracted),
   `tasks/ARCHIVE.md` (gate: H3 — session archiving; = CURRENT as of
-  2026-07-10, Joe's go), `tasks/TITLES.md` (gate: ARCHIVE — short
-  harness-derived titles + /rename overrides), `tasks/M8b.md` (gate: M8a).
-  M4/M5/M6 can interleave after H2 — they touch different areas. Each
-  task's "When done" names the next file to copy into CURRENT.md.
+  2026-07-10, Joe's go) → `tasks/PARITY.md` (gate: ARCHIVE — dogfood until
+  usable for claude code: transcript view, collapsible tools, gray thinking,
+  rename; absorbs TITLES Part 2) → `tasks/REALIZE.md` (gate: PARITY — every
+  control real or removed: settings, access, history-interim, stub
+  commands). Also queued: `tasks/M8b.md` (gate: M8a). TITLES is superseded
+  (Part 1 shipped by planner, Part 2 folded into PARITY). M4/M5/M6 can
+  interleave — M6 may be executed inside REALIZE (its bullet stands either
+  way). Each task's "When done" names the next file to copy into CURRENT.md.
 
 ## References (read in this order)
 
