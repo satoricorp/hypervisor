@@ -24,10 +24,11 @@ file directly:
   `tasks/H2.md` → `tasks/H3.md` → `tasks/M7g.md` (gate: H1) →
   `tasks/M8a.md` (gate: M7g). Also queued: `tasks/TV.md` (gate: M3),
   `tasks/M7.md` (gate: M7g — re-scoped, grammar extracted),
-  `tasks/ARCHIVE.md` (gate: H3 — session archiving; prioritize right after
-  H3, the board is drowning in test sessions). M4/M5/M6 can
-  interleave after H2 — they touch different areas. Each task's "When
-  done" names the next file to copy into CURRENT.md.
+  `tasks/ARCHIVE.md` (gate: H3 — session archiving; = CURRENT as of
+  2026-07-10, Joe's go), `tasks/TITLES.md` (gate: ARCHIVE — short
+  harness-derived titles + /rename overrides), `tasks/M8b.md` (gate: M8a).
+  M4/M5/M6 can interleave after H2 — they touch different areas. Each
+  task's "When done" names the next file to copy into CURRENT.md.
 
 ## References (read in this order)
 
