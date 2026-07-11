@@ -8,6 +8,7 @@
 //! binding for v1; release after 60s with no owned session working.
 
 mod keepawake;
+pub mod imessage;
 mod tailscale;
 
 use crate::approvals::ToastEvent;
@@ -52,12 +53,12 @@ impl SseBus {
         self.cv.notify_all();
     }
 
-    fn snapshot(&self) -> (u64, String) {
+    pub(crate) fn snapshot(&self) -> (u64, String) {
         let g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         (g.0, g.1.clone())
     }
 
-    fn wait_after(&self, after: u64, timeout: Duration) -> Option<(u64, String)> {
+    pub(crate) fn wait_after(&self, after: u64, timeout: Duration) -> Option<(u64, String)> {
         let g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let (g, _) = self
             .cv
@@ -163,7 +164,7 @@ fn forbidden(req: Request, msg: &str) {
     respond_text(req, 403, msg, "text/plain; charset=utf-8");
 }
 
-fn board_from_wire(sessions: &[crate::events::SessionWire]) -> Vec<BoardRow> {
+pub(crate) fn board_from_wire(sessions: &[crate::events::SessionWire]) -> Vec<BoardRow> {
     sessions
         .iter()
         .map(|s| BoardRow {
@@ -200,9 +201,10 @@ fn toast_remote(app: &AppHandle, action: &str, login: &str) {
             detail: None,
         },
     );
+    // TODO(M5): history line — `{action} via remote · {login} · {time}`
 }
 
-fn execute_action(
+pub(crate) fn execute_action(
     app: &AppHandle,
     state: &AppState,
     action: Action,
@@ -241,7 +243,7 @@ fn execute_action(
     }
 }
 
-fn run_command(
+pub(crate) fn run_command(
     app: &AppHandle,
     state: &Arc<AppState>,
     text: &str,
@@ -474,6 +476,9 @@ fn build_cfg() -> RemoteCfg {
 
 /// Start the loopback HTTP server + keep-awake watcher. Call once from setup.
 pub fn start(app: AppHandle, state: Arc<AppState>) {
+    // M8b: iMessage bridge (polls only while settings.imessage_bridge_enabled).
+    imessage::start(app.clone(), Arc::clone(&state));
+
     let bus = Arc::clone(&state.remote_bus);
     let cfg = build_cfg();
     if cfg.detected {

@@ -122,11 +122,22 @@ function RemoteSettings() {
     host: string;
     port: number;
   } | null>(null);
+  const [imessage, setImessage] = useState<{
+    enabled: boolean;
+    approvals: boolean;
+    fda_ok: boolean;
+    detail: string;
+  } | null>(null);
 
   useEffect(() => {
     import("../api")
-      .then(({ remoteStatus }) => remoteStatus())
-      .then(setStatus)
+      .then(({ remoteStatus, imessageStatus }) =>
+        Promise.all([remoteStatus(), imessageStatus()]),
+      )
+      .then(([remote, im]) => {
+        setStatus(remote);
+        setImessage(im);
+      })
       .catch(() =>
         setStatus({
           serve_cmd: "tailscale serve --bg 127.0.0.1:7428",
@@ -163,9 +174,15 @@ function RemoteSettings() {
           {status.serve_cmd}
         </span>
       </div>
+      <div className="listrow">
+        <span>imessage</span>
+        <span className="dim">{imessage?.detail ?? "…"}</span>
+      </div>
       <p className="footnote">
         phone page binds 127.0.0.1:{status.port} only — expose with the
         command above. auth via Tailscale-User-Login. no funnel, no yolo.
+        imessage needs Full Disk Access for chat.db and Automation for
+        Messages on first send.
       </p>
     </>
   );
@@ -224,6 +241,76 @@ function SettingsPane() {
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
       <RemoteSettings />
+      <h4>iMessage</h4>
+      <div className="listrow">
+        <span>bridge</span>
+        <span className="dim">poll self-chat · grammar</span>
+        <Switch
+          on={settings.imessage_bridge_enabled}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              imessage_bridge_enabled: !settings.imessage_bridge_enabled,
+            })
+          }
+        />
+      </div>
+      <div className="listrow">
+        <span>approvals over imessage</span>
+        <span className="dim">off by default · soft identity</span>
+        <Switch
+          on={settings.imessage_approvals}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              imessage_approvals: !settings.imessage_approvals,
+            })
+          }
+        />
+      </div>
+      <div className="listrow">
+        <span>push · done</span>
+        <span className="dim">≤1 text / 30s</span>
+        <Switch
+          on={settings.imessage_push_done}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              imessage_push_done: !settings.imessage_push_done,
+            })
+          }
+        />
+      </div>
+      <div className="listrow">
+        <span>push · needs you</span>
+        <span className="dim">batched</span>
+        <Switch
+          on={settings.imessage_push_needs_you}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              imessage_push_needs_you: !settings.imessage_push_needs_you,
+            })
+          }
+        />
+      </div>
+      <div className="listrow">
+        <span>push · stalled</span>
+        <span className="dim">batched</span>
+        <Switch
+          on={settings.imessage_push_stalled}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              imessage_push_stalled: !settings.imessage_push_stalled,
+            })
+          }
+        />
+      </div>
+      <p className="footnote">
+        self-chat only · bare letter approves when enabled · otherwise
+        &ldquo;approvals are disabled over imessage — use the tailnet page&rdquo;.
+      </p>
       <h4>Sources</h4>
       {(
         [

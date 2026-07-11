@@ -29,8 +29,9 @@ file directly:
   transcript view, collapsible tools, gray thinking, rename; absorbs TITLES
   Part 2; done 2026-07-10) → `tasks/REALIZE.md` (gate: PARITY —
   every control real or removed: settings, access, history-interim, stub
-  commands; done 2026-07-10) → `tasks/M8b.md` (gate: M8a). TITLES is superseded
-  (Part 1 shipped by planner, Part 2 folded into PARITY). M4/M5/M6 can
+  commands; done 2026-07-10) → `tasks/M8b.md` (gate: M8a; done 2026-07-11).
+  TITLES is superseded (Part 1 shipped by planner, Part 2 folded into PARITY).
+  **Next: M4 (worktrees) — planner writes the task file.** M4/M5/M6 can
   interleave — Access presence shipped inside REALIZE; M6 cost ledger still
   stands. Each task's "When done" names the next file to copy into CURRENT.md.
 
@@ -303,12 +304,15 @@ menu bar dot flips red→yellow→green through the whole cycle.
   via `tailscale serve`, authenticated by `Tailscale-User-Login`. Gate: M7g
   (was M7). Adds the echo rule and lid-closed keep-awake. Full spec:
   `design/remote.md`. No remote yolo, ever.
-  Task file: `tasks/M8a.md`. **M8b task file needed (planner writes it).**
+  Task file: `tasks/M8a.md`. Done 2026-07-10.
 
-- [ ] **M8b — remote: iMessage bridge.** Text your Mac: `status`,
+- [x] **M8b — remote: iMessage bridge.** Text your Mac: `status`,
   `3: <prompt>`; approvals over iMessage OFF by default. chat.db read-only
-  polling + AppleScript replies, self-chat only. Spec: `design/remote.md`.
-
+  polling (`mode=ro`, no `immutable=1`) + AppleScript replies, self-chat only.
+  Spec: `design/remote.md`. Task file: `tasks/M8b.md`. Done 2026-07-11 —
+  live DoD blocked on Full Disk Access; code + unit tests shipped (same
+  pattern as M8a / Tailscale). **M8b is the last remote milestone; next
+  build target is M4 (worktrees) — planner writes the task file.**
 ## Risks
 
 - **Cursor schema drift** — `composerHeaders` is undocumented; wrap the adapter

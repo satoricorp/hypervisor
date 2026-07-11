@@ -169,6 +169,22 @@ export interface SourceToggles {
 export interface AppSettings {
   tv_pause_on_needs_you: boolean;
   sources: SourceToggles;
+  imessage_bridge_enabled: boolean;
+  imessage_approvals: boolean;
+  imessage_push_done: boolean;
+  imessage_push_needs_you: boolean;
+  imessage_push_stalled: boolean;
+}
+
+export interface ImessageStatus {
+  enabled: boolean;
+  approvals: boolean;
+  fda_ok: boolean;
+  detail: string;
+}
+
+export async function imessageStatus(): Promise<ImessageStatus> {
+  return invoke<ImessageStatus>("imessage_status");
 }
 
 export async function getSettings(): Promise<AppSettings> {

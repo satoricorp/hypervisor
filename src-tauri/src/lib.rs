@@ -24,6 +24,7 @@ use events::{
     list_history, list_sessions, rename_session, send_prompt, set_settings, set_yolo, spawn_session,
     start_watcher, unarchive_session, AppState,
 };
+use remote::imessage::imessage_status;
 use remote::remote_status;
 use stable_ids::StableIds;
 use std::collections::HashMap;
@@ -108,6 +109,7 @@ pub fn run() {
             get_access,
             list_history,
             remote_status,
+            imessage_status,
             tv::toggle_tv,
             tv::tv_interrupt
         ])

@@ -11,7 +11,7 @@ use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotRea
 use crate::remote::SseBus;
 use crate::stable_ids::{self, StableIds};
 use crate::transcript::{self, TranscriptItem};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -34,7 +34,7 @@ fn lock<'a, T>(m: &'a Mutex<T>) -> MutexGuard<'a, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct SessionWire {
     pub harness: String,
@@ -60,7 +60,7 @@ pub struct SessionWire {
     pub letter: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct SessionsUpdate {
     pub sessions: Vec<SessionWire>,

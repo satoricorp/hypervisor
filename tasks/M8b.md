@@ -188,6 +188,96 @@ blocker + the manual steps to finish — exactly as M8a did for Tailscale.
 
 ## Evidence
 
+### Proven live vs code-only
+- **Code-only (this session):** gate, loop-guard, date conversion, attributedBody
+  heuristic, non-self filter, settings defaults, AppleScript shape, shared
+  executor wiring. Unit tests under `remote::imessage::tests::*` (7) +
+  settings roundtrip / legacy defaults.
+- **Not proven live:** DoD #1–#4 (status / prompt / approve toggle /
+  non-self ignore on the real phone). **Blocker: Full Disk Access** —
+  `~/Library/Messages/chat.db` exists (227 MB) but
+  `sqlite3 file:…?mode=ro` → `authorization denied` from this process.
+  Schema landmarks could not be verified against the live db.
+
+### FDA blocker + manual steps to finish
+1. System Settings → Privacy & Security → Full Disk Access → enable for
+   `Hypervisor` (and Terminal / Cursor if proving via CLI).
+2. System Settings → Privacy & Security → Automation → allow Hypervisor →
+   Messages (first `osascript` send).
+3. Settings → iMessage → enable **bridge**; leave **approvals over imessage**
+   OFF; text `status` to self-chat → expect board reply ≤5s.
+4. Text `N: <prompt>` → expect `→ N · <title> — sent`.
+5. Text bare letter with approvals OFF → exact refusal below; session stays
+   blocked. Toggle ON → same letter approves (transcript proof).
+6. After FDA: re-run the queries below against live chat.db and paste results
+   over the planned SQL in this Evidence section.
+
+### Decisions
+- **Open flags:** `mode=ro` only (no `immutable=1`) — M2c opencode WAL lesson.
+- **Grammar:** M7g bare letter / `N: text` (not pre-M7g `approve 5` / `deny 5`
+  in design/remote.md §M8b). One language, two transports.
+- **Loop guard:** after each outbound reply, re-read `MAX(message.ROWID)` and
+  advance watermark past own send.
+- **Self-chat predicate:** 1:1 chat where `chat_identifier = handle.id` (sole
+  participant). Own-handle allowlist = those `handle.id`s. Commands require
+  `is_from_me = 1`.
+
+### Planned live queries (unverified — FDA denied)
+Self-chat:
+```sql
+SELECT c.ROWID, h.id
+FROM chat c
+JOIN chat_handle_join chj ON chj.chat_id = c.ROWID
+JOIN handle h ON h.ROWID = chj.handle_id
+GROUP BY c.ROWID
+HAVING COUNT(*) = 1 AND c.chat_identifier = h.id
 ```
-(builder fills this in — empty Evidence means the milestone is not done)
+New-message poll:
+```sql
+SELECT m.ROWID, m.text, m.attributedBody, m.is_from_me, cmj.chat_id, h.id
+FROM message m
+JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+LEFT JOIN handle h ON h.ROWID = m.handle_id
+WHERE m.ROWID > ? AND cmj.chat_id IN (…)
+ORDER BY m.ROWID ASC
 ```
+Date: `mac_absolute_to_unix` — ns if `|date| > 1e12`, else seconds; +978307200.
+Body: prefer `text`; else `decode_attributed_body(attributedBody)` (NSString
+length-prefixed UTF-8 in streamtyped).
+
+### AppleScript (exact)
+```
+tell application "Messages"
+  set targetService to 1st account whose service type = iMessage
+  set targetBuddy to participant "<self-handle>" of targetService
+  send "<body>" to targetBuddy
+end tell
+```
+
+### Gate refusal (verbatim)
+`approvals are disabled over imessage — use the tailnet page`
+
+### Non-self / loop-guard proofs (unit)
+- `non_self_and_not_from_me_ignored` — `is_from_me=0` or wrong chat_rowid → not a command.
+- `loop_guard_advances_past_own_reply` — watermark advanced to post-send max;
+  fed-back status reply at that ROWID yields zero commands.
+
+### Approve/deny transcript
+Unproven live (FDA). Code path: `gate_action` → shared `remote::execute_action`
+with login `"imessage"` → toast `… via remote · imessage`. `// TODO(M5):`
+history line at toast site.
+
+### Verification
+```
+python3 spike/compare.py  → OK (23 sessions, 0 diffs)
+bunx tsc --noEmit         → exit 0
+cargo test --lib          → 47 passed, 3 ignored
+  (incl. remote::imessage::tests ×7)
+bun run tauri / cargo run → boots; remote listener starts; imessage idle
+  until settings.imessage_bridge_enabled (FDA would log
+  "needs Full Disk Access" if enabled without FDA)
+```
+
+### Next
+M8b is the last remote milestone; next build target is M4 (worktrees) —
+planner writes the task file.
