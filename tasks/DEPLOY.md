@@ -80,7 +80,9 @@ only.
 
 ## Scope fence
 
-- Static site only. No server code on AWS. No telemetry or analytics.
+- Static site only. No server code on AWS. No telemetry or analytics here —
+  site pageviews, if Joe opts in, arrive only via tasks/POSTHOG.md's site
+  section (cookie-less), not this task.
 - The remote/phone server config is untouched — do not "helpfully" add a
   public mode.
 - Do not bypass Gatekeeper checks in docs (no `xattr -d com.apple.quarantine`
