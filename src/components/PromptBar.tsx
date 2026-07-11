@@ -51,10 +51,10 @@ export function PromptBar() {
         <div className="target" id="target">
           {targetInner}
         </div>
-        <input
+        <textarea
           id="prompt"
           ref={promptRef}
-          type="text"
+          rows={1}
           spellCheck={false}
           autoComplete="off"
           placeholder={placeholder}
@@ -64,7 +64,7 @@ export function PromptBar() {
             dispatch({ type: "SET_PROMPT", value: e.target.value })
           }
         />
-        <span className="sendkey">⏎ send</span>
+        <span className="sendkey">⏎ send · ⇧⏎ newline</span>
       </div>
     </div>
   );

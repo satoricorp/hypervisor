@@ -114,10 +114,11 @@ export function useKeyboard() {
         }
       }
       if (inInput) {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           void doSend(state, dispatch);
         }
+        // Shift+Enter → newline (textarea default)
         return;
       }
 

@@ -4,10 +4,12 @@ use crate::adapters::Session;
 use crate::approvals::{self, PendingApproval, ToastEvent};
 use crate::control::archived::{self, ArchivedMap, ArchivedWire};
 use crate::control::owned::OwnedMap;
+use crate::control::titles::{self, TitlesMap};
 use crate::control::{opencode, owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
 use crate::remote::SseBus;
 use crate::stable_ids::{self, StableIds};
+use crate::transcript::{self, TranscriptItem};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -96,6 +98,9 @@ pub struct AppState {
     /// Local tombstones — sid → archived_at (unix secs). Never touches harness dirs.
     pub archived: Mutex<ArchivedMap>,
     pub archived_path: Mutex<PathBuf>,
+    /// Local title overrides — sid → custom title. Never touches harness dirs.
+    pub titles: Mutex<TitlesMap>,
+    pub titles_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
     pub pending: Mutex<HashMap<String, PendingOwned>>,
     /// sid → pending permission (M3).
@@ -144,6 +149,7 @@ fn to_wire(
     sessions: &[Session],
     owned: &OwnedMap,
     approvals: &HashMap<String, PendingApproval>,
+    titles: &TitlesMap,
     ids: &mut StableIds,
 ) -> Vec<SessionWire> {
     sessions
@@ -157,10 +163,14 @@ fn to_wire(
             };
             let n = ids.number_for(&s.sid);
             let letter = ids.letter_of_sid(&s.sid).map(|c| c.to_string());
+            let title = titles
+                .get(&s.sid)
+                .cloned()
+                .unwrap_or_else(|| s.title.clone());
             SessionWire {
                 harness: s.harness.clone(),
                 sid: s.sid.clone(),
-                title: s.title.clone(),
+                title,
                 model: s.model.clone(),
                 cwd: s.cwd.clone(),
                 branch: s.branch.clone(),
@@ -188,6 +198,7 @@ fn merge_pending(
     pending: &HashMap<String, PendingOwned>,
     approvals: &HashMap<String, PendingApproval>,
     archived: &ArchivedMap,
+    titles: &TitlesMap,
     ids: &mut StableIds,
 ) -> Vec<SessionWire> {
     let seen: std::collections::HashSet<_> = wire.iter().map(|s| s.sid.clone()).collect();
@@ -210,12 +221,14 @@ fn merge_pending(
         };
         let n = ids.number_for(sid);
         let letter = ids.letter_of_sid(sid).map(|c| c.to_string());
+        let derived = format!("new session — {}", &sid[..8.min(sid.len())]);
+        let title = titles.get(sid).cloned().unwrap_or(derived);
         wire.insert(
             0,
             SessionWire {
                 harness: p.harness.clone(),
                 sid: sid.clone(),
-                title: format!("new session — {}", &sid[..8.min(sid.len())]),
+                title,
                 model: p.model.clone(),
                 cwd: p.cwd.clone(),
                 branch: String::new(),
@@ -300,6 +313,7 @@ fn apply_approvals_to_snapshot(
     // Archive filter lives here (not in scan_sessions) so hvscan stays raw.
     filter_archived(state, &mut sessions);
     let archived = lock(&state.archived).clone();
+    let titles = lock(&state.titles).clone();
     // Drop pending entries once adapters have the real row.
     {
         let mut p = lock(&state.pending);
@@ -309,11 +323,12 @@ fn apply_approvals_to_snapshot(
     let capped: Vec<Session> = sessions.into_iter().take(LIMIT).collect();
     let mut ids = lock(&state.ids);
     let wire = merge_pending(
-        to_wire(&capped, &owned, &approvals, &mut ids),
+        to_wire(&capped, &owned, &approvals, &titles, &mut ids),
         &owned,
         &pending,
         &approvals,
         &archived,
+        &titles,
         &mut ids,
     );
     (wire, total)
@@ -734,7 +749,13 @@ pub fn send_prompt(
                     scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None)
                 }
             };
-            to_wire(&sessions, &owned, &approvals, &mut lock(&state.ids))
+            to_wire(
+                &sessions,
+                &owned,
+                &approvals,
+                &lock(&state.titles),
+                &mut lock(&state.ids),
+            )
                 .into_iter()
                 .find(|s| s.sid == sid)
                 .ok_or_else(|| format!("session {sid} not found"))?
@@ -863,13 +884,15 @@ pub fn list_archived(state: State<'_, Arc<AppState>>) -> Vec<ArchivedWire> {
     };
     let by_sid: HashMap<&str, &Session> =
         sessions.iter().map(|s| (s.sid.as_str(), s)).collect();
+    let titles = lock(&state.titles).clone();
     let mut out: Vec<ArchivedWire> = archived
         .iter()
         .map(|(sid, &at)| {
-            let (title, harness) = match by_sid.get(sid.as_str()) {
+            let (derived, harness) = match by_sid.get(sid.as_str()) {
                 Some(s) => (s.title.clone(), s.harness.clone()),
                 None => (sid.clone(), String::new()),
             };
+            let title = titles.get(sid).cloned().unwrap_or(derived);
             ArchivedWire {
                 sid: sid.clone(),
                 title,
@@ -917,6 +940,77 @@ pub fn archive_idle(
     }
     emit_current(&app, &state);
     Ok(count)
+}
+
+/// On-demand transcript for the selected session. Does not touch the hot loop.
+#[tauri::command]
+pub fn get_transcript(
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+    limit: Option<u32>,
+) -> Result<Vec<TranscriptItem>, String> {
+    let limit = limit.unwrap_or(400) as usize;
+    let (harness, src) = resolve_src(&state, &sid)?;
+    Ok(transcript::parse_transcript(&src, &harness, limit))
+}
+
+fn resolve_src(state: &AppState, sid: &str) -> Result<(String, String), String> {
+    {
+        let sessions = lock(&state.sessions);
+        if let Some(s) = sessions.iter().find(|s| s.sid == sid) {
+            if !s.src.is_empty() {
+                return Ok((s.harness.clone(), s.src.clone()));
+            }
+        }
+    }
+    {
+        let snap = lock(&state.snapshot);
+        if let Some(s) = snap.iter().find(|s| s.sid == sid) {
+            if !s.src.is_empty() {
+                return Ok((s.harness.clone(), s.src.clone()));
+            }
+        }
+    }
+    // Fallback: look for claude jsonl by sid (observe rows may be capped out).
+    let home = crate::adapters::home_dir();
+    let pattern = format!("{home}/.claude/projects/*/{sid}.jsonl");
+    if let Ok(paths) = glob::glob(&pattern) {
+        for p in paths.flatten() {
+            return Ok((
+                "claude code".into(),
+                p.to_string_lossy().to_string(),
+            ));
+        }
+    }
+    Err(format!("no transcript source for session {sid}"))
+}
+
+/// Local title override. Empty or "-" clears. Never writes harness dirs.
+#[tauri::command]
+pub fn rename_session(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    sid: String,
+    title: String,
+) -> Result<String, String> {
+    let trimmed = title.trim().to_string();
+    let clear = trimmed.is_empty() || trimmed == "-";
+    {
+        let mut titles = lock(&state.titles);
+        if clear {
+            titles.remove(&sid);
+        } else {
+            titles.insert(sid.clone(), trimmed.clone());
+        }
+        let path = lock(&state.titles_path).clone();
+        titles::save(&path, &titles)?;
+    }
+    emit_current(&app, &state);
+    if clear {
+        Ok("title reverted to derived".into())
+    } else {
+        Ok(format!("renamed — {trimmed}"))
+    }
 }
 
 #[tauri::command]
@@ -1059,6 +1153,8 @@ mod archive_tests {
             owned_path: Mutex::new(dir.join("owned.json")),
             archived: Mutex::new(ArchivedMap::new()),
             archived_path: Mutex::new(dir.join("archived.json")),
+            titles: Mutex::new(TitlesMap::new()),
+            titles_path: Mutex::new(dir.join("titles.json")),
             pending: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             yolo: Mutex::new(false),
@@ -1119,6 +1215,7 @@ mod archive_tests {
             &lock(&state.sessions),
             &OwnedMap::new(),
             &HashMap::new(),
+            &TitlesMap::new(),
             &mut lock(&state.ids),
         );
         let err = archive_one(&state, "w1").unwrap_err();

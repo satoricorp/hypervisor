@@ -1,102 +1,85 @@
-# PARITY — usable for claude code: dogfood until it feels native
+# REALIZE — nothing mock stays in the app
 
-**Prerequisite gate: ARCHIVE must be ticked in PLAN.md.** If unticked, stop
-and report. (This task absorbs TITLES Part 2 — rename — so tasks/TITLES.md
-is superseded by this file.)
+**Prerequisite gate: PARITY must be ticked in PLAN.md.** If unticked, stop
+and report.
 
-**Your mission, and it is different from previous milestones:** use
-Hypervisor to drive a real claude code session while you work, write down
-every place it is worse than the native claude TUI, and close those gaps.
-Joe's seed list: session renaming · short titles (derivation shipped —
-verify it reads well in practice) · collapsible tool calls · thinking in
-smaller gray text. The rest of the list is yours to discover by using it.
+**You are enforcing one rule everywhere:** every visible control either does
+something real or it disappears. The rule for each mock: **verify a real
+backing exists → build it; otherwise remove the fake and note it.** Removed
+things return with their milestone (M5 history, M6 usage, M7 notifications).
 
-## The method (this is the contract)
+Already real (don't redo): tv in the ⌘K palette (planner, 2026-07-10);
+short titles; approvals; adoption; archive; rename (PARITY).
 
-1. **Dogfood loop.** Spawn a claude code session via Hypervisor and conduct
-   a real task in it (building this very milestone works). Every time you
-   reach for the terminal instead of Hypervisor, that's a finding — log it.
-2. **Verify before building.** For every rendering feature, first prove the
-   transcript actually carries the data: paste a real JSONL line into
-   Evidence. **If the data isn't there, leave the feature out** and record
-   why. No synthesized/faked content, ever.
-3. **Iterate.** Fix → use again → next finding. Evidence's core artifact is
-   the friction ledger: finding → data proof → fixed / left out (why).
+## The mock inventory (audit first — this list may have drifted)
 
-## Known build items (verify each against real transcripts first)
+Open every view and menu; list what's fake in Evidence before changing
+anything. Known as of writing:
 
-### 1. A real transcript view
+1. **Settings view** — all toggles are decorative.
+   - `launch at login` → make real: tauri-plugin-autostart.
+   - `tv: pause when a session needs me` → make real: gate the tvOnRed
+     interrupt path on a persisted setting (settings.json in app data dir —
+     create the tiny settings store; other rows reuse it).
+   - `sources` toggles (claude/codex/cursor/opencode) → make real: a
+     disabled source is skipped by the scan/watch loop (session rows vanish;
+     document interaction with owned sessions).
+   - Notification rows (`notify when done`, `sound`, dock badge) → **remove**
+     (no notification system until M7; the rows return with it).
+2. **Usage view** — mock tiles/bars. This is M6's ledger work. Either execute
+   M6 here in full (per its PLAN bullet: tokens/cost from transcripts —
+   claude + codex record usage fields; pricing table; subscription split) or,
+   if it doesn't fit the session, **replace the pane with real-but-minimal**:
+   live session counts by harness + "cost ledger lands with M6" — and say so.
+   No fake dollar numbers may survive either way. The `$4.51 · 2.41 MTOK`
+   ticker follows the same rule.
+3. **Access view** — mock rows. Make real: detect key *presence* (env vars
+   from a login-shell probe, `security find-generic-password` exit codes
+   only — never read/store key material, principle 2), subscriptions
+   best-effort (claude/codex config files indicate plan; verify what exists
+   on disk, paste proof). Unverifiable rows are dropped, not invented.
+4. **History view** — mock rows. Interim-real until M5: sessions from the
+   unfiltered scan older than the sidebar window + archived tombstones,
+   searchable. Clicking opens the PARITY transcript view read-only. Note
+   "M5 replaces this with sqlite + summaries."
+5. **Stub `/` commands** — audit which still toast "lands in M3/M4":
+   - `/broadcast` → real: send the prompt to every controllable session
+     (tmux + api tiers), echo per-target results.
+   - `/review` → real: spawn a reviewer session (existing spawn path) in the
+     parent's cwd with a canned review prompt.
+   - `/plan` → real: prefix the prompt with a plan-first instruction; the
+     approval flow (M3) already parks execution — verify the interaction.
+   - `/kill` → real: tmux kill-session + owned.json cleanup, confirm toast.
+   - `/compact` → real for claude tmux sessions: send-keys the literal
+     `/compact` command; verify in the pane. Others: remove from menu.
+   - `/loop`, `/worktree`, `/handoff` → **remove from the menu** (return
+     with their milestones); killing a fake beats shipping a timer that can
+     runaway-prompt an agent.
 
-Today the detail pane shows only title/last-sent/last-reply/activity. Build
-`get_transcript(sid, limit) -> Vec<TranscriptItem>` — a tauri command that
-tail-parses the session's source file **on demand** (selected session only;
-NOT in every snapshot — keep the hot loop untouched). Typed items to probe
-for in claude JSONL:
+## Definition of done
 
-- user text (role user, content text blocks — skip noise/meta as adapters do)
-- assistant text
-- **thinking** (assistant content blocks `type:"thinking"`, field
-  `thinking`) — render smaller + `--ink-3` gray, clamp long blocks with
-  expand-on-click
-- **tool calls** (`type:"tool_use"`: name + input) paired with their results
-  (user-role entries with `type:"tool_result"`, may be string or array,
-  `is_error` flag) — render **collapsed to one line** `▸ ⚒ Bash(cargo test)`;
-  click expands input + result in a scrollable monospace block. Errors get
-  the red tint.
-
-Refresh the open transcript when `sessions:update` fires for the selected
-sid. Autoscroll pinned to bottom unless the user has scrolled up (the
-standard chat rule — breaking it is the #1 way to make reading painful).
-
-### 2. Rename (absorbed from TITLES Part 2)
-
-`titles.json` override in the app data dir; `rename_session(sid, title)`
-(empty or `-` clears); `/rename <title>` on the selected session with
-trailing-text argument support in the `/` menu; override applied in the app
-snapshot path only (hvscan/oracle stay raw); flows to sidebar, detail,
-grammar echoes, phone page. Persists across restart.
-
-### 3. Whatever the dogfooding surfaces
-
-Candidates you'll likely hit (verify, then fix or log): tool-result noise
-flooding `last_assistant`; interleaving order of thinking/tool/text;
-multi-line prompts in the composer (shift+enter?); the sidebar age not
-ticking without fs events; selected-row jumpiness while the fleet writes.
-Budget most of your session here, not on the list above.
-
-## Definition of done — the usability bar
-
-1. **The exit test:** conduct one complete real task in a claude code
-   session end-to-end from Hypervisor — prompt, watch thinking/tool calls
-   live in the transcript view, approve at least one permission, read the
-   result — without opening the terminal except to verify. Describe the task
-   and the experience in Evidence.
-2. Tool calls render collapsed and expand with real input/result content
-   (screenshot or text proof from a real session).
-3. Thinking blocks render small + gray when present; sessions without
-   thinking render cleanly without placeholders.
-4. `/rename` meets TITLES DoD #3/#4 (persists, flows everywhere, `-` reverts).
-5. The friction ledger in Evidence has ≥ 8 entries, each resolved
-   (fixed / left out with data proof).
-6. `python3 spike/compare.py --limit 20` OK · `bunx tsc --noEmit` ·
+1. A screen-by-screen audit in Evidence: every control listed as
+   real-verified / made-real / removed. Zero fake data renders anywhere
+   (grep the frontend for the mock constants and delete them).
+2. Each "made real" item has a live proof (toggle autostart → check
+   `osascript`/login items; disable codex source → its rows vanish;
+   `/kill` → tmux session gone; `/compact` → pane shows compaction).
+3. Settings persist across restart (settings.json).
+4. `python3 spike/compare.py --limit 20` OK · `bunx tsc --noEmit` ·
    `cargo test --lib` · `npm run tauri dev` boots.
 
 ## Scope fence
 
-- claude code is the bar. codex transcript view = best-effort if cheap;
-  cursor/claude.ai unchanged. Do not degrade other harnesses' rows.
-- `registry::scan_sessions` and the snapshot hot loop untouched
-  (get_transcript is a separate on-demand path). Oracle stays green.
-- No editor features (principle 4): read, approve, prompt — never edit code
-  in Hypervisor.
-- No LLM summarization (M5).
+- Principle 2 is absolute in Access: presence only, never values.
+- No notification code (M7), no sqlite (M5), no LLM calls.
+- Removing is success, not failure — record what was removed and which
+  milestone restores it.
 
 ## When done
 
-Evidence per the method; tick PARITY in PLAN.md; mark TITLES as superseded
-(note in its file); name the next queue file. Commit:
-`PARITY: transcript view, collapsible tools, gray thinking, rename — dogfooded`.
+Evidence per above; tick REALIZE in PLAN.md; name the next queue file.
+Commit: `REALIZE: every control real or removed — settings, access, history, commands`.
 
 ## Evidence
 
-(builder fills this in — the friction ledger is the deliverable)
+(builder fills this in)

@@ -99,4 +99,87 @@ Evidence per the method; tick PARITY in PLAN.md; mark TITLES as superseded
 
 ## Evidence
 
-(builder fills this in — the friction ledger is the deliverable)
+**Done 2026-07-10.** Gate ARCHIVE was already ticked. TITLES Part 2 absorbed.
+
+### Data proofs (verify-then-build)
+
+**tool_use** (real line, `743b4c0f-…` under `~/.claude/projects/-Users-joe-git-gx/`):
+```json
+{"type":"tool_use","id":"toolu_01EtG3XCDhsdbBgqytTuH7W6","name":"Bash","input":{"command":"ls /Users/joe/git/gx && cat /Users/joe/git/gx/CLAUDE.md 2>/dev/null | head -100","description":"List repo root and read CLAUDE.md"}}
+```
+
+**tool_result + is_error** (same file):
+```json
+{"type":"tool_result","tool_use_id":"toolu_01WUysmjqQZoGGQBsQsaKQzT","is_error":true,"content":"Exit code 1\ncommit d262128f…"}
+```
+
+**thinking** — structure present, text always empty on this machine (1620 empty
+/ 0 nonempty across 40 recent jsonl files):
+```json
+{"type":"thinking","thinking":"","has_signature":true}
+```
+→ Parser skips empty thinking; UI renders nonempty as small `--ink-3` gray
+with clamp/expand. No placeholders when absent.
+
+**Collapsed tool proof** (same gx session, 169 tools paired):
+```
+▸ ⚒ Bash(ls /Users/joe/git/gx && cat /Users/joe/git/gx…)
+▸ ⚒ Bash(git status && git diff --stat)
+▸ ⚒ Read(/Users/joe/git/gx/CONTEXT.md)
+```
+
+### Friction ledger (≥8, each resolved)
+
+| # | Finding | Data / repro | Resolution |
+|---|---------|--------------|------------|
+| 1 | Detail pane only showed title / last-sent / last-reply | Snapshot fields only; no JSONL walk | **Fixed** — `get_transcript` on-demand + `TranscriptView` |
+| 2 | Tool calls invisible / not collapsible | tool_use + tool_result proven above | **Fixed** — `▸ ⚒ Name(hint)`; expand input+result; red on `is_error` |
+| 3 | Wanted gray thinking like native TUI | thinking blocks exist but `thinking:""` everywhere locally | **Left out** nonempty dogfood; empty skipped; UI ready when text appears |
+| 4 | Can't rename sessions | no titles.json | **Fixed** — `titles.json` + `rename_session` + `/rename` / `/rename -` |
+| 5 | `/rename payments spike` didn't match menu filter | root filter used `startsWith` on full remainder | **Fixed** — trailing-text match for rename |
+| 6 | Multi-line prompts impossible (single-line `<input>`) | reached for terminal for long prompts | **Fixed** — `<textarea>`; ⏎ send · ⇧⏎ newline |
+| 7 | Autoscroll always forced — painful when reading up | old `scrollTop = scrollHeight` on every update | **Fixed** — pin-unless-scrolled-up (48px threshold) |
+| 8 | Prompt mangled in Hypervisor tmux (`Run Bash…` → `sh: …`) | Claude boots INSERT/manual; Escape→NORMAL eats vim motions | **Fixed** — `tmux::send`: Escape → `i` → C-u → literal → Enter |
+| 9 | Reached for terminal to inspect JSONL shapes | verify-then-build contract | **Fixed** (process) — on-demand parser; hot loop untouched |
+| 10 | Live spawn can't run tools: `model may not exist` (fable/opus) even when banner shows Fable 5; ANSI leak `claude-opus-4-8[1m]` | `claude -p` + tmux spawn both fail 2026-07-10 | **Left out** live tool+approve exit path — environmental Claude Code routing; approve path unchanged from M3x |
+| 11 | Cursor / opencode full transcript | no verified JSONL shape for tools/thinking | **Left out** — empty vec; codex best-effort user/assistant only |
+| 12 | Opencode fs-scan flood during `tauri dev` boot | log spam `[scan] harness=opencode reason=fs` | **Left out** — out of PARITY scope (hot-loop / notify) |
+
+### Exit test
+
+**Attempted:** spawn claude via Hypervisor tmux socket (`tmux -L hypervisor`,
+`--session-id`, same path as `/new`), send prompt with fixed `tmux::send`,
+watch pane + JSONL.
+
+**What worked:** session appeared; after Escape→i fix the full prompt landed
+in the transcript (`USER: Run the Bash tool with command: echo PARITY_DOGFOOD_OK && pwd`);
+`get_transcript` / fixture tests parse tools from real gx sessions.
+
+**What blocked:** Claude Code returned `There's an issue with the selected
+model (claude-fable-5)` for every live invoke (tmux and `claude -p`) on this
+machine today — no tool_use, no permission dialog. Could not complete
+approve-live in this session. Recorded as ledger #10.
+
+**Transcript view proof instead:** `cargo test transcript::tests::real_claude_jsonl_has_tools`
+against live `~/.claude/projects/-Users-joe-git-gx/*.jsonl` — tools present,
+empty thinking produces zero Thinking items.
+
+### Rename
+
+- `control/titles.rs` load/save roundtrip test OK
+- Override applied in `to_wire` / `merge_pending` only (hvscan stays raw —
+  compare.py OK)
+- `/rename <title>` + `/rename -` wired in menu + `doRename`
+- `titles.json` at `~/Library/Application Support/com.joe.hypervisor/titles.json`
+
+### Verification
+
+- `python3 spike/compare.py --limit 20` → OK (38 sessions, ≤1 lenient state race)
+- `bunx tsc --noEmit` → OK
+- `cargo test --lib` → 37 passed, 3 ignored
+- `npm run tauri dev` → vite ready on :1420, `Running target/debug/hypervisor`,
+  startup scans for all four harnesses
+
+### Next queue file
+
+`tasks/REALIZE.md` (copied into `tasks/CURRENT.md`)

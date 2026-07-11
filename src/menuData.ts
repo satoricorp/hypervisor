@@ -128,6 +128,11 @@ export const ROOT_CMDS = [
     label: "/archive idle",
     desc: "hide every done/stalled session",
   },
+  {
+    id: "rename",
+    label: "/rename",
+    desc: "set a custom title · /rename - reverts",
+  },
 ];
 
 export const PAL = [

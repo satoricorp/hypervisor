@@ -106,3 +106,34 @@ export async function listArchived(): Promise<ArchivedWire[]> {
 export async function archiveIdle(): Promise<number> {
   return invoke<number>("archive_idle");
 }
+
+export type TranscriptItem =
+  | { kind: "user"; text: string }
+  | { kind: "assistant"; text: string }
+  | { kind: "thinking"; text: string }
+  | {
+      kind: "tool";
+      id: string;
+      name: string;
+      summary: string;
+      input: string;
+      result: string | null;
+      is_error: boolean;
+    };
+
+export async function getTranscript(
+  sid: string,
+  limit?: number,
+): Promise<TranscriptItem[]> {
+  return invoke<TranscriptItem[]>("get_transcript", {
+    sid,
+    limit: limit ?? null,
+  });
+}
+
+export async function renameSession(
+  sid: string,
+  title: string,
+): Promise<string> {
+  return invoke<string>("rename_session", { sid, title });
+}

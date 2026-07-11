@@ -19,6 +19,7 @@ import {
   denySession,
   getYolo,
   listSessions,
+  renameSession,
   sendPrompt,
   setYolo,
   spawnSession,
@@ -43,20 +44,34 @@ function menuItemsFor(state: AppState): MenuItem[] {
     const idleCount = state.sessions.filter(
       (s) => s.state === "done" || s.state === "error",
     ).length;
-    return ROOT_CMDS.filter((c) => c.label.slice(1).startsWith(f)).map(
-      (c) => {
-        if (c.id === "archive-idle") {
-          return {
-            ...c,
-            desc:
-              idleCount === 0
-                ? "no idle sessions to hide"
-                : `hide ${idleCount} done/stalled session${idleCount === 1 ? "" : "s"}`,
-          };
-        }
-        return c;
-      },
-    );
+    return ROOT_CMDS.filter((c) => {
+      const label = c.label.slice(1).toLowerCase(); // without leading /
+      // Trailing-text commands: match prefix word so `/rename foo` still hits.
+      if (c.id === "rename") {
+        return f === "rename" || f.startsWith("rename ");
+      }
+      return label.startsWith(f);
+    }).map((c) => {
+      if (c.id === "archive-idle") {
+        return {
+          ...c,
+          desc:
+            idleCount === 0
+              ? "no idle sessions to hide"
+              : `hide ${idleCount} done/stalled session${idleCount === 1 ? "" : "s"}`,
+        };
+      }
+      if (c.id === "rename") {
+        const arg = prompt.replace(/^\/rename\s*/i, "");
+        return {
+          ...c,
+          desc: arg
+            ? `rename to “${arg}”`
+            : 'usage: /rename <title> · "/rename -" reverts',
+        };
+      }
+      return c;
+    });
   }
   if (menu.step === "target") return TARGETS;
   const models = MODELS[menu.target ?? ""] ?? [];
@@ -371,6 +386,10 @@ export function reducer(state: AppState, action: Action): AppState {
           // Side effect in chooseMenu → doArchive / doArchiveIdle.
           return next;
         }
+        if (it.id === "rename") {
+          // Side effect in chooseMenu → doRename (needs trailing text).
+          return next;
+        }
         return toast(next, `/${it.id}`, "concept only, not wired yet");
       }
       if (state.menu.step === "target") {
@@ -458,7 +477,7 @@ export function reducer(state: AppState, action: Action): AppState {
 type StoreValue = {
   state: AppState;
   dispatch: Dispatch<Action>;
-  promptRef: RefObject<HTMLInputElement | null>;
+  promptRef: RefObject<HTMLTextAreaElement | null>;
   palInputRef: RefObject<HTMLInputElement | null>;
 };
 
@@ -512,7 +531,7 @@ async function runSpawn(
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const promptRef = useRef<HTMLInputElement | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const palInputRef = useRef<HTMLInputElement | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -798,8 +817,40 @@ export function chooseMenu(
       void doArchiveIdle(dispatch);
       return;
     }
+    if (it.id === "rename") {
+      const arg = state.prompt.replace(/^\/rename\s*/i, "").trim();
+      dispatch({ type: "CHOOSE_MENU" });
+      void doRename(state, dispatch, arg);
+      return;
+    }
   }
   dispatch({ type: "CHOOSE_MENU" });
+}
+
+/** /rename <title> — local override; "-" or empty clears. */
+export async function doRename(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+  arg: string,
+): Promise<void> {
+  if (!arg) {
+    dispatch({
+      type: "TOAST",
+      label: 'usage: /rename <title> · "/rename -" reverts to the derived title',
+    });
+    return;
+  }
+  const s = state.sessions[state.sel];
+  if (!s?.sid) {
+    dispatch({ type: "TOAST", label: "nothing to rename" });
+    return;
+  }
+  try {
+    const msg = await renameSession(s.sid, arg);
+    dispatch({ type: "TOAST", label: msg });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
 }
 
 /** ⌘⌫ / /archive — hide the selected session. */

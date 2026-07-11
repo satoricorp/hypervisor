@@ -27,9 +27,9 @@ file directly:
   `tasks/ARCHIVE.md` (gate: H3 — session archiving; done 2026-07-10) →
   `tasks/PARITY.md` (gate: ARCHIVE — dogfood until usable for claude code:
   transcript view, collapsible tools, gray thinking, rename; absorbs TITLES
-  Part 2; = CURRENT as of 2026-07-10) → `tasks/REALIZE.md` (gate: PARITY —
+  Part 2; done 2026-07-10) → `tasks/REALIZE.md` (gate: PARITY —
   every control real or removed: settings, access, history-interim, stub
-  commands). Also queued: `tasks/M8b.md` (gate: M8a). TITLES is superseded
+  commands; = CURRENT as of 2026-07-10). Also queued: `tasks/M8b.md` (gate: M8a). TITLES is superseded
   (Part 1 shipped by planner, Part 2 folded into PARITY). M4/M5/M6 can
   interleave — M6 may be executed inside REALIZE (its bullet stands either
   way). Each task's "When done" names the next file to copy into CURRENT.md.
@@ -243,6 +243,11 @@ with Tab and proceeds. *Open AC closed in M3x (live pane + approve/deny proof).*
   while working; resurface when mtime exceeds archived_at; owned idle also
   kills `hv-*` tmux. Filter in events emit path only — hvscan stays raw.
   Task file: `tasks/ARCHIVE.md`.
+
+- [x] **PARITY — usable for claude code.** On-demand `get_transcript` (hot
+  loop untouched); collapsible tool calls; gray thinking when nonempty;
+  `/rename` + `titles.json` overrides; dogfood friction ledger. Absorbs
+  TITLES Part 2. Task file: `tasks/PARITY.md`.
 
 - [x] **M7g — the grammar core.** Extracted from M7 so remote doesn't wait on
   tray/notification plumbing: the shared backend grammar

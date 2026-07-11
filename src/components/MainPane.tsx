@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { listArchived, unarchiveSession, type ArchivedWire } from "../api";
-import { CTL_HINT, STATE_META, buildLog, iconOf } from "../constants";
+import {
+  getTranscript,
+  listArchived,
+  unarchiveSession,
+  type ArchivedWire,
+  type TranscriptItem,
+} from "../api";
+import { CTL_HINT, STATE_META, iconOf } from "../constants";
 import { HISTORY } from "../menuData";
 import { useStore } from "../store";
 import { SubagentList } from "./SubagentList";
-import { SubTranscript, Transcript } from "./Transcript";
+import { SubTranscript, TranscriptView } from "./Transcript";
 
 function UsagePane() {
   return (
@@ -429,11 +435,37 @@ function ArchivedPane() {
 function SessionView() {
   const { state } = useStore();
   const s = state.sessions[state.sel];
+  const [items, setItems] = useState<TranscriptItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Refresh transcript when selection changes or the selected sid updates.
+  const sid = s?.sid;
+  const mtime = s?.age; // age ticks; also re-fetch on sessions:update via sid+state
+  const activity = s?.tool;
+  const lastSent = s?.sent;
+  const lastState = s?.state;
 
   useEffect(() => {
-    const el = document.getElementById("dlog");
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [state.sel, state.subSel, s?.state, s?.log, s?.thinkIdx]);
+    if (!sid) {
+      setItems([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    void getTranscript(sid, 400)
+      .then((rows) => {
+        if (!cancelled) setItems(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sid, mtime, activity, lastSent, lastState, state.total]);
 
   if (!s) {
     return (
@@ -477,7 +509,6 @@ function SessionView() {
 
   const m = STATE_META[s.state];
   const hint = CTL_HINT[s.ctl] || CTL_HINT.tmux;
-  const log = s.log ?? buildLog(s);
 
   return (
     <div className="dwrap">
@@ -509,7 +540,7 @@ function SessionView() {
         </p>
       ) : null}
       <SubagentList />
-      <Transcript session={s} log={log} />
+      <TranscriptView session={s} items={items} loading={loading} />
     </div>
   );
 }

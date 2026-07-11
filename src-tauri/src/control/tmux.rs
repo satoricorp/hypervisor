@@ -126,7 +126,19 @@ pub fn next_hv_name() -> String {
 }
 
 /// Send literal text then Enter (150ms apart so TUIs can compose first).
+/// Claude Code boots in vim-like INSERT/manual mode inside tmux. Escape alone
+/// drops into NORMAL mode where the first chars of a prompt are eaten as
+/// motions ("Run Bash…" → "sh: …"). Re-enter INSERT with `i`, clear, then type.
 pub fn send(target: &str, text: &str) -> Result<(), String> {
+    // DECISION: Escape → i → C-u → literal → Enter. Dogfood finding 2026-07-10.
+    let _ = tmux(&["send-keys", "-t", target, "Escape"]);
+    thread::sleep(Duration::from_millis(60));
+    let _ = tmux(&["send-keys", "-t", target, "Escape"]);
+    thread::sleep(Duration::from_millis(60));
+    let _ = tmux(&["send-keys", "-t", target, "i"]);
+    thread::sleep(Duration::from_millis(60));
+    let _ = tmux(&["send-keys", "-t", target, "C-u"]);
+    thread::sleep(Duration::from_millis(60));
     tmux(&["send-keys", "-t", target, "-l", "--", text])?;
     thread::sleep(Duration::from_millis(150));
     tmux(&["send-keys", "-t", target, "Enter"])?;

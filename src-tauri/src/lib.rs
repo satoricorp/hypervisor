@@ -7,6 +7,7 @@ pub mod grammar_cli;
 pub mod registry;
 pub mod remote;
 pub mod stable_ids;
+mod transcript;
 mod tv;
 
 pub use adapters::{Adapter, Session};
@@ -17,9 +18,9 @@ pub use registry::{
 
 use control::adopt::adopt_session;
 use events::{
-    approve_session, archive_idle, archive_session, deny_session, get_yolo, kill_session,
-    list_archived, list_sessions, send_prompt, set_yolo, spawn_session, start_watcher,
-    unarchive_session, AppState,
+    approve_session, archive_idle, archive_session, deny_session, get_transcript, get_yolo,
+    kill_session, list_archived, list_sessions, rename_session, send_prompt, set_yolo,
+    spawn_session, start_watcher, unarchive_session, AppState,
 };
 use remote::remote_status;
 use stable_ids::StableIds;
@@ -41,6 +42,8 @@ pub fn run() {
             let owned_map = control::owned::load(&owned_path);
             let archived_path = data_dir.join("archived.json");
             let archived_map = control::archived::load(&archived_path);
+            let titles_path = data_dir.join("titles.json");
+            let titles_map = control::titles::load(&titles_path);
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
                 total: std::sync::Mutex::new(0),
@@ -49,6 +52,8 @@ pub fn run() {
                 owned_path: std::sync::Mutex::new(owned_path),
                 archived: std::sync::Mutex::new(archived_map),
                 archived_path: std::sync::Mutex::new(archived_path),
+                titles: std::sync::Mutex::new(titles_map),
+                titles_path: std::sync::Mutex::new(titles_path),
                 pending: std::sync::Mutex::new(HashMap::new()),
                 approvals: std::sync::Mutex::new(HashMap::new()),
                 yolo: std::sync::Mutex::new(false),
@@ -83,6 +88,8 @@ pub fn run() {
             unarchive_session,
             list_archived,
             archive_idle,
+            get_transcript,
+            rename_session,
             remote_status,
             tv::toggle_tv,
             tv::tv_interrupt
