@@ -115,6 +115,49 @@ fn cursor_session() -> Option<AccessRow> {
     }
 }
 
+/// M6v2: is `harness` on a subscription, and a short plan label for the ledger?
+/// Reuses the same on-disk signals as the Access view (presence only).
+pub fn billing_mode(harness: &str) -> (bool, String) {
+    match harness {
+        "claude code" | "claude" => match claude_subscription() {
+            Some(r) => (true, claude_plan(&r.detail)),
+            None => (false, "api key".into()),
+        },
+        "codex" => match codex_subscription() {
+            Some(r) if r.detail.contains("chatgpt") => (true, "chatgpt".into()),
+            _ => (false, "api key".into()),
+        },
+        "cursor" => (cursor_session().is_some(), "cursor".into()),
+        "opencode" => (false, "byo key".into()),
+        _ => (false, String::new()),
+    }
+}
+
+/// tier "default_claude_max_20x" → "max 20x"; empty/plain → "max".
+fn claude_plan(detail: &str) -> String {
+    let tier = detail.rsplit('·').next().unwrap_or(detail).trim();
+    let cleaned = tier
+        .trim_start_matches("default_")
+        .trim_start_matches("claude_")
+        .replace('_', " ");
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || cleaned == "claude" {
+        "max".into()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+#[cfg(test)]
+mod billing_tests {
+    use super::claude_plan;
+    #[test]
+    fn claude_plan_is_clean() {
+        assert_eq!(claude_plan("claude_max · default_claude_max_20x"), "max 20x");
+        assert_eq!(claude_plan("claude"), "max");
+    }
+}
+
 pub fn probe_access() -> Vec<AccessRow> {
     let mut rows = Vec::new();
 

@@ -136,6 +136,35 @@ html, body, #root {
   .srow .m .apphint svg { width: 11px; height: 11px; opacity: .8; }
   .pausechip { color: var(--busy); flex: none; }
 
+  /* ————— usage pane (M6 v2) ————— */
+  .usagehdr {
+    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-3); margin: 18px 0 7px;
+  }
+  .urow {
+    display: grid; grid-template-columns: minmax(110px, 1.3fr) 3fr auto auto;
+    gap: 10px; align-items: center; padding: 3px 2px; font-size: 11px;
+  }
+  .urow .uname {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--ink);
+  }
+  .utrack {
+    height: 6px; background: var(--surface-2); border-radius: 2px;
+    overflow: hidden;
+  }
+  .ufill { display: block; height: 100%; background: var(--border-2); }
+  .urow .ucost, .urow .utok {
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .urow .utok { min-width: 52px; }
+  .mint { color: var(--mint, #57e0c9); }
+  .incbadge {
+    font-size: 8px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ok); border: 1px solid var(--border-2);
+    border-radius: var(--r-chip); padding: 0 5px;
+  }
+
   /* ————— main: session detail ————— */
   .dwrap { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
   .dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }

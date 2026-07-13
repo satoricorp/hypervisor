@@ -198,12 +198,26 @@ export interface UsageRow {
   cost: number;
 }
 
+export interface HarnessRow {
+  harness: string;
+  tokens: number;
+  cost: number;
+  plan: string;
+  subscription: boolean;
+}
+
 export interface UsageReport {
   today_cost: number;
   today_tokens: number;
+  today_input: number;
+  today_output: number;
+  week_cost: number;
+  sessions_today: number;
   total_cost: number;
   total_tokens: number;
+  subscription_tokens: number;
   rows: UsageRow[];
+  harnesses: HarnessRow[];
   api_priced: boolean;
 }
 
