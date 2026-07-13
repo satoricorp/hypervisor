@@ -62,6 +62,44 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
+/** Collapses a run of intermediate steps (thinking + tool calls) between a
+ *  prompt and a response into one accordion, so the conversation reads clean. */
+function StepsAccordion({ items }: { items: TranscriptItem[] }) {
+  const [open, setOpen] = useState(false);
+  const tools = items.filter((i) => i.kind === "tool").length;
+  const thinks = items.filter((i) => i.kind === "thinking").length;
+  const parts: string[] = [];
+  if (tools) parts.push(`${tools} tool${tools > 1 ? "s" : ""}`);
+  if (thinks) parts.push(`${thinks} thinking`);
+  return (
+    <div className="dsteps">
+      <button
+        type="button"
+        className="dstepshead"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="dtoolchev">{open ? "▾" : "▸"}</span>
+        <span className="dstepslabel">
+          {items.length} step{items.length > 1 ? "s" : ""}
+          {parts.length ? ` · ${parts.join(" · ")}` : ""}
+        </span>
+      </button>
+      {open ? (
+        <div className="dstepsbody">
+          {items.map((it, i) =>
+            it.kind === "thinking" ? (
+              <ThinkingBlock key={i} text={it.text} />
+            ) : it.kind === "tool" ? (
+              <ToolBlock key={it.id || i} item={it} />
+            ) : null,
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function nowBlock(s: Session) {
   if (s.state === "working") {
     if (s.tool) {
@@ -127,6 +165,36 @@ export function TranscriptView({
     el.scrollTop = el.scrollHeight;
   }, [items, session.state, session.tool, session.approval, loading]);
 
+  // Group intermediate steps (thinking + tool calls) into collapsible
+  // accordions so prompts (you) and responses (agent) stay prominent.
+  type Row =
+    | { k: "you"; text: string }
+    | { k: "agent"; text: string }
+    | { k: "steps"; items: TranscriptItem[] };
+  const rows: Row[] = [];
+  {
+    let buf: TranscriptItem[] = [];
+    const flush = () => {
+      if (buf.length) {
+        rows.push({ k: "steps", items: buf });
+        buf = [];
+      }
+    };
+    for (const it of items) {
+      if (it.kind === "thinking" || it.kind === "tool") {
+        buf.push(it);
+      } else {
+        flush();
+        rows.push(
+          it.kind === "user"
+            ? { k: "you", text: it.text }
+            : { k: "agent", text: it.text },
+        );
+      }
+    }
+    flush();
+  }
+
   return (
     <div className="dlog" id="dlog" ref={ref}>
       {loading && items.length === 0 ? (
@@ -135,26 +203,19 @@ export function TranscriptView({
       {!loading && items.length === 0 ? (
         <div className="dthink">no transcript lines yet</div>
       ) : null}
-      {items.map((it, i) => {
-        if (it.kind === "user") {
-          return (
-            <div key={i} className="dyou">
-              {it.text}
-            </div>
-          );
-        }
-        if (it.kind === "assistant") {
-          return (
-            <div key={i} className="dagent">
-              {it.text}
-            </div>
-          );
-        }
-        if (it.kind === "thinking") {
-          return <ThinkingBlock key={i} text={it.text} />;
-        }
-        return <ToolBlock key={it.id || i} item={it} />;
-      })}
+      {rows.map((row, i) =>
+        row.k === "you" ? (
+          <div key={i} className="dyou">
+            {row.text}
+          </div>
+        ) : row.k === "agent" ? (
+          <div key={i} className="dagent">
+            {row.text}
+          </div>
+        ) : (
+          <StepsAccordion key={i} items={row.items} />
+        ),
+      )}
       <div id="nowblock">{nowBlock(session)}</div>
     </div>
   );

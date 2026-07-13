@@ -234,6 +234,21 @@ html, body, #root {
     white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto;
   }
   .dtoolpre-err { color: var(--err); border-color: rgba(255, 107, 107, .35); }
+  /* collapsed run of thinking + tool steps between prompt and response */
+  .dsteps { margin: 1px 0; }
+  .dstepshead {
+    display: flex; align-items: center; gap: 6px;
+    background: none; border: none; padding: 1px 0; margin: 0;
+    font: inherit; font-size: 10.5px; color: var(--ink-3);
+    cursor: pointer; text-align: left;
+  }
+  .dstepshead:hover { color: var(--ink-2); }
+  .dstepslabel { letter-spacing: .02em; }
+  .dstepsbody {
+    margin-left: 15px; margin-top: 5px;
+    display: flex; flex-direction: column; gap: 7px;
+    border-left: 1px solid var(--border); padding-left: 11px;
+  }
   .dresult { color: var(--ok); }
   .dask { color: var(--wait); }
   .dfail { color: var(--err); }
