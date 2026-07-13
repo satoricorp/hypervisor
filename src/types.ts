@@ -43,6 +43,9 @@ export interface Session {
   noAdopt?: boolean;
   sid?: string;
   cwd?: string;
+  /** Claude launch context: "claude-desktop" | "cli" | "sdk-cli". Desktop-app
+   *  sessions group under the "Claude" sidebar section; empty for non-claude. */
+  entrypoint?: string;
   sidechains?: number;
   /** Stable session number from backend (M7g). */
   n?: number;

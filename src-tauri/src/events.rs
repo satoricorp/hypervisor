@@ -63,6 +63,9 @@ pub struct SessionWire {
     pub letter: Option<String>,
     /// M4: worktree directory name when this session runs in its own tree.
     pub worktree: Option<String>,
+    /// Claude launch context: "claude-desktop" | "cli" | "sdk-cli". Empty for
+    /// non-claude harnesses. Groups desktop-launched sessions under "Claude".
+    pub entrypoint: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -258,6 +261,7 @@ fn to_wire(
                 n,
                 letter,
                 worktree,
+                entrypoint: s.entrypoint.clone(),
             }
         })
         .collect()
@@ -321,6 +325,7 @@ fn merge_pending(
                 n,
                 letter,
                 worktree,
+                entrypoint: String::new(),
             },
         );
     }
@@ -1703,6 +1708,7 @@ mod archive_tests {
             repo: "r".into(),
             src: String::new(),
             sidechains: 0,
+            entrypoint: String::new(),
             last_role: "assistant".into(),
         }
     }

@@ -357,6 +357,7 @@ mod tests {
             repo: "tmp".into(),
             src: String::new(),
             sidechains: 0,
+            entrypoint: String::new(),
             last_role: "assistant".into(),
         }];
         refinalize(&mut sessions);
@@ -389,6 +390,7 @@ mod tests {
                 repo: "-".into(),
                 src: String::new(),
                 sidechains: 0,
+                entrypoint: String::new(),
                 last_role: "assistant".into(),
             }],
         );

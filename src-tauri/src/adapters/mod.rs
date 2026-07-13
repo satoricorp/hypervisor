@@ -29,6 +29,9 @@ pub struct Session {
     pub repo: String,
     pub src: String,
     pub sidechains: u32,
+    /// Launch context of a claude session — "claude-desktop" | "cli" |
+    /// "sdk-cli". Empty for non-claude harnesses. Groups desktop sessions.
+    pub entrypoint: String,
     /// Kept for tick-time re-finalize (working→done) without rescanning.
     #[serde(skip)]
     pub last_role: String,
@@ -50,6 +53,7 @@ pub struct RawSession {
     pub src: String,
     pub last_role: String,
     pub sidechains: u32,
+    pub entrypoint: String,
 }
 
 pub trait Adapter {
@@ -248,6 +252,7 @@ pub fn finalize(raw: Vec<RawSession>) -> Vec<Session> {
                 repo,
                 src: s.src,
                 sidechains: s.sidechains,
+                entrypoint: s.entrypoint,
                 last_role: s.last_role,
             }
         })
@@ -278,5 +283,6 @@ pub fn empty_raw(harness: &str, sid: &str, mtime: f64, src: &str) -> RawSession 
         src: src.into(),
         last_role: String::new(),
         sidechains: 0,
+        entrypoint: String::new(),
     }
 }

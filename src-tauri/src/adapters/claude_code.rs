@@ -61,6 +61,11 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Vec<RawSession> {
                     s.branch = branch.to_string();
                 }
             }
+            if let Some(ep) = e.get("entrypoint").and_then(|v| v.as_str()) {
+                if !ep.is_empty() {
+                    s.entrypoint = ep.to_string();
+                }
+            }
             let typ = e.get("type").and_then(|v| v.as_str()).unwrap_or("");
             let msg = e.get("message").cloned().unwrap_or(Value::Object(Default::default()));
             let content = msg.get("content");

@@ -23,6 +23,7 @@ export interface SessionWire {
   n?: number;
   letter?: string | null;
   worktree?: string | null;
+  entrypoint?: string;
 }
 
 function mapState(state: string): SessionState {
@@ -67,6 +68,7 @@ export function wireToSession(w: SessionWire): Session {
     br: w.branch || undefined,
     wt: w.worktree || undefined,
     cwd: w.cwd || undefined,
+    entrypoint: w.entrypoint || undefined,
     sid: w.sid,
     age: w.age,
     sidechains: w.sidechains || 0,
