@@ -30,37 +30,62 @@ enum Dot {
     Red,
 }
 
-/// An 18×18 RGBA filled circle for the menu bar (non-template, so it stays
-/// colored): red = needs you, yellow = working, green = all clear.
-fn dot_image(d: Dot) -> Image<'static> {
+/// An RGBA **outline of the "H"** (as in the HYPERVISOR wordmark) for the menu
+/// bar — non-template so it stays colored: red = needs you, yellow = working,
+/// green = all clear. Draws the contour of a bold H (outer + inner edges).
+fn icon_image(d: Dot) -> Image<'static> {
     let (r, g, b) = match d {
         Dot::Green => (70u8, 214, 140),
         Dot::Yellow => (226, 163, 62),
         Dot::Red => (229, 84, 75),
     };
-    let n: usize = 18;
-    let (cx, cy, rad) = (8.5f64, 8.5, 5.4);
-    let mut buf = vec![0u8; n * n * 4];
-    for y in 0..n {
-        for x in 0..n {
-            let dx = x as f64 - cx;
-            let dy = y as f64 - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
-            let a: u8 = if dist <= rad {
-                255
-            } else if dist <= rad + 1.2 {
-                ((rad + 1.2 - dist) / 1.2 * 255.0) as u8
-            } else {
-                0
-            };
-            let i = (y * n + x) * 4;
-            buf[i] = r;
-            buf[i + 1] = g;
-            buf[i + 2] = b;
-            buf[i + 3] = a;
+    const N: i64 = 44;
+    let stroke = 11.0f64;
+    let margin = 8.0f64;
+    let pad_v = 8.0f64;
+    let (top, bot) = (pad_v, N as f64 - pad_v);
+    let left_x = margin;
+    let right_x = N as f64 - margin - stroke;
+    let mid = (top + bot) / 2.0;
+    // Pixel is inside the (filled) bold H letterform?
+    let filled = |x: i64, y: i64| -> bool {
+        if x < 0 || y < 0 || x >= N || y >= N {
+            return false;
+        }
+        let (fx, fy) = (x as f64, y as f64);
+        let lv = fx >= left_x && fx < left_x + stroke && fy >= top && fy < bot;
+        let rv = fx >= right_x && fx < right_x + stroke && fy >= top && fy < bot;
+        let cb = fy >= mid - stroke / 2.0 && fy < mid + stroke / 2.0 && fx >= left_x
+            && fx < right_x + stroke;
+        lv || rv || cb
+    };
+    let w: i64 = 2; // outline thickness
+    let mut buf = vec![0u8; (N * N * 4) as usize];
+    for y in 0..N {
+        for x in 0..N {
+            if !filled(x, y) {
+                continue;
+            }
+            // Edge pixel: some neighbour within `w` is outside the letterform.
+            let mut edge = false;
+            'scan: for dy in -w..=w {
+                for dx in -w..=w {
+                    if !filled(x + dx, y + dy) {
+                        edge = true;
+                        break 'scan;
+                    }
+                }
+            }
+            if edge {
+                let i = ((y * N + x) * 4) as usize;
+                buf[i] = r;
+                buf[i + 1] = g;
+                buf[i + 2] = b;
+                buf[i + 3] = 255;
+            }
         }
     }
-    Image::new_owned(buf, n as u32, n as u32)
+    Image::new_owned(buf, N as u32, N as u32)
 }
 
 struct Pending {
@@ -73,7 +98,7 @@ struct Pending {
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app, &[])?;
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(dot_image(Dot::Green))
+        .icon(icon_image(Dot::Green))
         .icon_as_template(false)
         .tooltip("hypervisor")
         .menu(&menu)
@@ -164,7 +189,7 @@ pub fn refresh(app: &AppHandle, state: &AppState) {
     };
 
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_icon(Some(dot_image(dot)));
+        let _ = tray.set_icon(Some(icon_image(dot)));
         let _ = tray.set_title(Some(if n > 0 { n.to_string() } else { String::new() }));
         if let Ok(menu) = build_menu(app, &pending) {
             let _ = tray.set_menu(Some(menu));
