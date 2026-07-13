@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { getUsage, type UsageReport } from "../api";
 import { doSetYolo, useStore } from "../store";
 
 function healthLine(state: {
@@ -40,18 +42,40 @@ function harnessCounts(
   return parts.length === 0 ? "no sessions" : parts.join(" · ");
 }
 
+/** Compact token count: 23.2M / 480k / 512. */
+function fmtTok(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}k`;
+  return String(n);
+}
+
 export function Statusbar() {
   const { state, dispatch } = useStore();
   const sel = state.sessions[state.sel];
   const showSubsHint = (sel?.subs.length ?? 0) > 0;
   const n = state.total || state.sessions.length;
+  // M6: today's ledger. On-demand scan (reads transcripts) — poll gently.
+  const [usage, setUsage] = useState<UsageReport | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      void getUsage()
+        .then((u) => alive && setUsage(u))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 120_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
   return (
     <div className="statusbar">
       <div
         className="ticker"
         id="ticker"
         tabIndex={0}
-        title="open usage"
+        title="today's spend · open usage"
         role="button"
         onClick={() => dispatch({ type: "SHOW_VIEW", view: "usage" })}
         onKeyDown={(e) => {
@@ -60,7 +84,16 @@ export function Statusbar() {
           }
         }}
       >
-        <b>{n}</b> live · {harnessCounts(state.sessions)}
+        {usage ? (
+          <>
+            <b>${usage.today_cost.toFixed(2)}</b> ·{" "}
+            {fmtTok(usage.today_tokens)} tok
+          </>
+        ) : (
+          <>
+            <b>{n}</b> live · {harnessCounts(state.sessions)}
+          </>
+        )}
       </div>
       <button
         className={`yolobtn ${state.yolo ? "on" : ""}`}
