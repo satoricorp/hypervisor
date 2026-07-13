@@ -11,6 +11,7 @@ import {
   getTranscript,
   listArchived,
   listHistory,
+  searchHistory,
   setSettings,
   unarchiveSession,
   type AccessRow,
@@ -487,13 +488,24 @@ function HistoryDetail({
   );
 }
 
+function uniqById(rows: HistoryRow[]): HistoryRow[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    if (seen.has(r.sid)) return false;
+    seen.add(r.sid);
+    return true;
+  });
+}
+
 function HistoryPane() {
   const { state, dispatch } = useStore();
   const [rows, setRows] = useState<HistoryRow[] | null>(null);
+  const [hits, setHits] = useState<HistoryRow[] | null>(null);
   const [detail, setDetail] = useState<{ sid: string; title: string } | null>(
     null,
   );
-  const q = state.historyFilter.toLowerCase();
+  const q = state.historyFilter.trim();
+  const ql = q.toLowerCase();
 
   useEffect(() => {
     void listHistory()
@@ -503,6 +515,23 @@ function HistoryPane() {
         setRows([]);
       });
   }, [dispatch]);
+
+  // M5: searching queries the whole summary store, not just the recent window.
+  useEffect(() => {
+    if (!q) {
+      setHits(null);
+      return;
+    }
+    let alive = true;
+    void searchHistory(q)
+      .then((r) => {
+        if (alive) setHits(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [q]);
 
   if (detail) {
     return (
@@ -514,14 +543,19 @@ function HistoryPane() {
     );
   }
 
-  const filtered = (rows ?? []).filter(
+  // Instant client filter over the loaded window, unioned with store hits when
+  // a query is present so archived summaries beyond the window show too.
+  const windowFiltered = (rows ?? []).filter(
     (h) =>
       !q ||
-      [h.title, h.note, h.model, h.harness, h.sid]
+      [h.title, h.note, h.model, h.harness, h.sid, h.summary]
         .join(" ")
         .toLowerCase()
-        .includes(q),
+        .includes(ql),
   );
+  const filtered = q
+    ? uniqById([...windowFiltered, ...(hits ?? [])])
+    : (rows ?? []);
 
   return (
     <div className="pane">
@@ -567,7 +601,9 @@ function HistoryPane() {
                 {formatWhen(h.mtime)}
               </span>
               <span className="grow">{h.title}</span>
-              <span className="dim grow">{h.note}</span>
+              <span className="dim grow" title={h.summary || undefined}>
+                {h.summary || h.note}
+              </span>
               {h.model ? <span className="modelchip">{h.model}</span> : null}
               {h.harness ? (
                 <span
@@ -581,8 +617,8 @@ function HistoryPane() {
         )}
       </div>
       <p className="footnote">
-        interim — older than the sidebar window + archived tombstones. M5
-        replaces this with sqlite + summaries.
+        search covers stored summaries (history.db) · rows older than the sidebar
+        window + archived tombstones · summaries generate when a session archives.
       </p>
     </div>
   );

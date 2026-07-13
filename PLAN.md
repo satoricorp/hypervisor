@@ -281,7 +281,11 @@ opts out. Task file: `tasks/M4.md`. Built 2026-07-12 — worktree module +
 auto-isolation + `auto_worktree` setting; unit/compile/tsc verified, live UI
 smoke pending.
 
-- [ ] **M5 — history + memory.** sqlite store; sessions archive on end (or manual);
+- [x] **M5 — history + memory.** Built 2026-07-13 — `history.rs` sqlite summary
+store, extractive archive-time summaries, keyword search over summaries, `/new`
+same-repo context attachment. Task file: `tasks/M5.md`. Neural embeddings
+(HelixDB/turbopuffer) deferred — AC met by same-repo + keyword. 62 lib tests.
+sqlite store; sessions archive on end (or manual);
 archive-time **summary with simple semantic meaning** — one sentence of outcome
 + key decisions + files touched, stored per session (generate with a cheap
 model via the user's own key, or extractively if none). History view =

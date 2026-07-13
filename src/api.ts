@@ -252,8 +252,14 @@ export interface HistoryRow {
   mtime: number;
   note: string;
   archived: boolean;
+  summary: string;
 }
 
 export async function listHistory(): Promise<HistoryRow[]> {
   return invoke<HistoryRow[]>("list_history");
+}
+
+/** M5: keyword search over stored session summaries (all of history.db). */
+export async function searchHistory(query: string): Promise<HistoryRow[]> {
+  return invoke<HistoryRow[]>("search_history", { query });
 }
