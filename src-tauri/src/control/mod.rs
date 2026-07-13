@@ -5,3 +5,4 @@ pub mod owned;
 pub mod settings;
 pub mod titles;
 pub mod tmux;
+pub mod worktree;

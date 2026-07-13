@@ -132,6 +132,7 @@ pub enum CommandName {
     Subagents,
     Kill,
     Yolo,
+    Worktree,
 }
 
 impl CommandName {
@@ -146,6 +147,7 @@ impl CommandName {
             Self::Subagents => "/subagents",
             Self::Kill => "/kill",
             Self::Yolo => "/yolo",
+            Self::Worktree => "/worktree",
         }
     }
 }

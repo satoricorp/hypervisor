@@ -51,6 +51,11 @@ export const ROOT_CMDS = [
     desc: "start a fresh session — pick harness + model",
   },
   {
+    id: "worktree",
+    label: "/worktree",
+    desc: "new agent in a fresh git worktree of this repo",
+  },
+  {
     id: "compact",
     label: "/compact",
     desc: "compact this session’s context window (claude tmux)",

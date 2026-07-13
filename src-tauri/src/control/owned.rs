@@ -15,10 +15,24 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 
+/// M4: the git worktree a spawned session runs in (when isolated). Persisted so
+/// the repo·branch·worktree header survives a restart without re-shelling git.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Worktree {
+    /// Shared repo label (header `repo`), e.g. `hypervisor`.
+    pub repo: String,
+    /// Dedicated branch, e.g. `hv-1a2b3c4d`.
+    pub branch: String,
+    /// Worktree directory (the session's cwd).
+    pub path: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OwnedEntry {
     pub tmux: String,
     pub harness: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<Worktree>,
 }
 
 impl OwnedEntry {
@@ -26,7 +40,13 @@ impl OwnedEntry {
         Self {
             tmux: tmux.into(),
             harness: harness.into(),
+            worktree: None,
         }
+    }
+
+    pub fn with_worktree(mut self, worktree: Option<Worktree>) -> Self {
+        self.worktree = worktree;
+        self
     }
 }
 
@@ -87,7 +107,14 @@ fn parse_entry(val: &serde_json::Value) -> Option<OwnedEntry> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(OwnedEntry { tmux, harness })
+            let worktree = obj
+                .get("worktree")
+                .and_then(|v| serde_json::from_value(v.clone()).ok());
+            Some(OwnedEntry {
+                tmux,
+                harness,
+                worktree,
+            })
         }
         _ => None,
     }
