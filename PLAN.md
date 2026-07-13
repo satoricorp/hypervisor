@@ -33,7 +33,9 @@ file directly:
   TITLES is superseded (Part 1 shipped by planner, Part 2 folded into PARITY).
   Also queued: `tasks/DEPLOY.md` (gate: REALIZE ✓ — hypervisor.sh static
   site + release pipeline; Phase 2 signing gates on Joe's Apple Developer
-  enrollment; the phone/remote server is NEVER deployed publicly).
+  enrollment; the phone/remote server is NEVER deployed publicly) ·
+  `tasks/POSTHOG.md` (gate: REALIZE ✓ — content-free analytics; done
+  2026-07-11).
   **Next: DEPLOY or M4 (worktrees) — M4 task file still to be written.**
   M4/M5/M6 can
   interleave — Access presence shipped inside REALIZE; M6 cost ledger still
@@ -321,6 +323,13 @@ menu bar dot flips red→yellow→green through the whole cycle.
   live DoD blocked on Full Disk Access; code + unit tests shipped (same
   pattern as M8a / Tailscale). **M8b is the last remote milestone; next
   build target is M4 (worktrees) — planner writes the task file.**
+
+- [x] **POSTHOG — content-free product analytics.** Rust-side PostHog capture
+  (`telemetry.rs`), typed event enum, Settings gate (default ON + one-time
+  disclosure), compile-time keys via `.env` (staging) / GitHub secrets
+  (prod), site pageview bundle in `site/`. Task file: `tasks/POSTHOG.md`.
+  Done 2026-07-11.
+
 ## Risks
 
 - **Cursor schema drift** — `composerHeaders` is undocumented; wrap the adapter

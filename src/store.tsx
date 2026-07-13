@@ -537,7 +537,12 @@ async function runSpawn(
     state.sessions.filter((s) => s.ctl === "tmux" && s.sid).map((s) => s.sid!),
   );
   try {
-    const name = await spawnSession(harness, model, cwd);
+    const name = await spawnSession(
+      harness,
+      model,
+      cwd,
+      cmd === "subagents" ? "subagents" : "new",
+    );
     dispatch({
       type: "TOAST",
       label: name,

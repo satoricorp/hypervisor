@@ -8,6 +8,7 @@ pub mod grammar_cli;
 pub mod registry;
 pub mod remote;
 pub mod stable_ids;
+pub mod telemetry;
 mod transcript;
 mod tv;
 
@@ -30,8 +31,11 @@ use stable_ids::StableIds;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
+use telemetry::{HarnessCounts, Telemetry, TelemetryEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -53,7 +57,20 @@ pub fn run() {
             let titles_path = data_dir.join("titles.json");
             let titles_map = control::titles::load(&titles_path);
             let settings_path = data_dir.join("settings.json");
-            let settings = control::settings::load(&settings_path);
+            let mut settings = control::settings::load(&settings_path);
+            if settings.ensure_distinct_id() {
+                let _ = control::settings::save(&settings_path, &settings);
+            }
+            let telemetry = Telemetry::new(settings.distinct_id.clone(), settings.analytics);
+            telemetry::install(Arc::clone(&telemetry));
+
+            let show_analytics_notice =
+                settings.analytics && !settings.analytics_notice_shown && telemetry::configured();
+            if show_analytics_notice {
+                settings.analytics_notice_shown = true;
+                let _ = control::settings::save(&settings_path, &settings);
+            }
+
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
                 total: std::sync::Mutex::new(0),
@@ -76,6 +93,37 @@ pub fn run() {
             app.manage(Arc::clone(&state));
             start_watcher(app.handle().clone(), Arc::clone(&state));
             remote::start(app.handle().clone(), Arc::clone(&state));
+
+            // app_opened after a short delay so the first scan can populate counts.
+            let handle = app.handle().clone();
+            let st = Arc::clone(&state);
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(1500));
+                let labels: Vec<String> = st
+                    .sessions
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .iter()
+                    .map(|s| s.harness.clone())
+                    .collect();
+                let counts = HarnessCounts::from_harness_labels(labels.iter().map(|s| s.as_str()));
+                telemetry::capture(TelemetryEvent::AppOpened {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    harness_counts: counts,
+                });
+                if show_analytics_notice {
+                    use approvals::ToastEvent;
+                    use tauri::Emitter;
+                    let _ = handle.emit(
+                        "toast",
+                        &ToastEvent {
+                            label: "anonymous usage analytics are on — Settings to turn off."
+                                .into(),
+                            detail: None,
+                        },
+                    );
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {

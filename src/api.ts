@@ -14,11 +14,13 @@ export async function spawnSession(
   harness: string,
   model: string,
   cwd?: string | null,
+  via: "new" | "subagents" = "new",
 ): Promise<string> {
   return invoke<string>("spawn_session", {
     harness,
     model,
     cwd: cwd ?? null,
+    via,
   });
 }
 
@@ -174,6 +176,9 @@ export interface AppSettings {
   imessage_push_done: boolean;
   imessage_push_needs_you: boolean;
   imessage_push_stalled: boolean;
+  analytics: boolean;
+  distinct_id: string;
+  analytics_notice_shown: boolean;
 }
 
 export interface ImessageStatus {

@@ -75,11 +75,13 @@ pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
         if visible {
             let _ = w.eval("try { document.querySelector('video')?.pause() } catch (_e) {}");
             w.hide().map_err(|e| e.to_string())?;
+            crate::telemetry::capture(crate::telemetry::TelemetryEvent::TvToggled { on: false });
             return Ok(false);
         }
         w.show().map_err(|e| e.to_string())?;
         let _ = w.set_focus();
         let _ = w.eval("try { document.querySelector('video')?.play() } catch (_e) {}");
+        crate::telemetry::capture(crate::telemetry::TelemetryEvent::TvToggled { on: true });
         return Ok(true);
     }
     let w = WebviewWindowBuilder::new(
@@ -99,6 +101,7 @@ pub fn toggle_tv(app: AppHandle) -> Result<bool, String> {
     .build()
     .map_err(|e| e.to_string())?;
     make_drag_anywhere(&w);
+    crate::telemetry::capture(crate::telemetry::TelemetryEvent::TvToggled { on: true });
     Ok(true)
 }
 

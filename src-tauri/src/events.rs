@@ -10,6 +10,9 @@ use crate::control::{opencode, owned, tmux};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
 use crate::remote::SseBus;
 use crate::stable_ids::{self, StableIds};
+use crate::telemetry::{
+    self, ApprovalVia, CommandName, Decision, PromptTier, PromptVia, SpawnVia, TelemetryEvent,
+};
 use crate::transcript::{self, TranscriptItem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -476,6 +479,10 @@ fn refresh_approvals(state: &AppState) -> Vec<(String, String)> {
                 Ok(()) => {
                     seen.insert(key);
                     auto_toasts.push((sid.clone(), pending.text.clone()));
+                    telemetry::capture(TelemetryEvent::ApprovalResolved {
+                        via: ApprovalVia::Yolo,
+                        decision: Decision::Approve,
+                    });
                 }
                 Err(e) => {
                     eprintln!("yolo approve failed for {sid}: {e}");
@@ -569,6 +576,7 @@ pub fn spawn_session(
     harness: String,
     model: String,
     cwd: Option<String>,
+    via: Option<String>,
 ) -> Result<String, String> {
     let cwd = cwd.unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".into()));
     let spawn_time = now_secs();
@@ -579,6 +587,17 @@ pub fn spawn_session(
     } else {
         harness.clone()
     };
+    let spawn_via = SpawnVia::parse(via.as_deref().unwrap_or("new"));
+    telemetry::capture(TelemetryEvent::SessionSpawned {
+        harness: harness_label.clone(),
+        via: spawn_via,
+    });
+    telemetry::capture(TelemetryEvent::CommandUsed {
+        name: match spawn_via {
+            SpawnVia::Subagents => CommandName::Subagents,
+            SpawnVia::New => CommandName::New,
+        },
+    });
 
     if let Some(sid) = &spawned.sid {
         {
@@ -745,7 +764,12 @@ pub fn send_prompt(
         let map = lock(&state.owned);
         if let Some(entry) = map.get(&sid).cloned() {
             drop(map);
-            return tmux::send(&entry.tmux, &text);
+            tmux::send(&entry.tmux, &text)?;
+            telemetry::capture(TelemetryEvent::PromptSent {
+                tier: PromptTier::Tmux,
+                via: PromptVia::Desktop,
+            });
+            return Ok(());
         }
     }
 
@@ -783,7 +807,12 @@ pub fn send_prompt(
         // DECISION: no idle guard on the api path — HTTP is opencode's
         // concurrent-access surface; nothing forks. (Adopt fork guard for
         // claude/codex --resume is unchanged.)
-        return crate::control::opencode::prompt_async(&sid, &sess.cwd, &text);
+        crate::control::opencode::prompt_async(&sid, &sess.cwd, &text)?;
+        telemetry::capture(TelemetryEvent::PromptSent {
+            tier: PromptTier::Api,
+            via: PromptVia::Desktop,
+        });
+        return Ok(());
     }
 
     Err("session is observe-only — press ⏎ to adopt it first".into())
@@ -841,6 +870,9 @@ pub fn compact_session(
         return Err("/compact is only for claude code tmux sessions".into());
     }
     tmux::send(&tmux_name, "/compact")?;
+    telemetry::capture(TelemetryEvent::CommandUsed {
+        name: CommandName::Compact,
+    });
     Ok("sent /compact".into())
 }
 
@@ -872,7 +904,7 @@ pub fn broadcast_prompt(
             continue;
         }
         let title = s.title.clone();
-        match prompt_sid(&state, &s.sid, &text) {
+        match prompt_sid(&state, &s.sid, &text, PromptVia::Desktop) {
             Ok(()) => results.push(BroadcastResult {
                 sid: s.sid.clone(),
                 title,
@@ -890,6 +922,9 @@ pub fn broadcast_prompt(
     if results.is_empty() {
         return Err("no controllable sessions to broadcast to".into());
     }
+    telemetry::capture(TelemetryEvent::CommandUsed {
+        name: CommandName::Broadcast,
+    });
     Ok(results)
 }
 
@@ -907,6 +942,7 @@ pub fn set_settings(
     {
         let path = lock(&state.settings_path).clone();
         settings::save(&path, &settings)?;
+        telemetry::set_enabled(settings.analytics);
         *lock(&state.settings) = settings.clone();
     }
     // Source toggles change which rows appear — re-emit now.
@@ -1066,6 +1102,10 @@ pub fn archive_session(
     sid: String,
 ) -> Result<String, String> {
     let msg = archive_one(&state, &sid)?;
+    telemetry::capture(TelemetryEvent::SessionArchived { bulk: false });
+    telemetry::capture(TelemetryEvent::CommandUsed {
+        name: CommandName::Archive,
+    });
     emit_current(&app, &state);
     Ok(msg)
 }
@@ -1157,6 +1197,12 @@ pub fn archive_idle(
             }
         }
     }
+    if count > 0 {
+        telemetry::capture(TelemetryEvent::SessionArchived { bulk: true });
+        telemetry::capture(TelemetryEvent::CommandUsed {
+            name: CommandName::ArchiveIdle,
+        });
+    }
     emit_current(&app, &state);
     Ok(count)
 }
@@ -1225,6 +1271,9 @@ pub fn rename_session(
         titles::save(&path, &titles)?;
     }
     emit_current(&app, &state);
+    telemetry::capture(TelemetryEvent::CommandUsed {
+        name: CommandName::Rename,
+    });
     if clear {
         Ok("title reverted to derived".into())
     } else {
@@ -1238,7 +1287,7 @@ pub fn approve_session(
     state: State<'_, Arc<AppState>>,
     sid: String,
 ) -> Result<(), String> {
-    approve_sid(&app, &state, &sid)
+    approve_sid(&app, &state, &sid, ApprovalVia::Tab)
 }
 
 #[tauri::command]
@@ -1248,7 +1297,7 @@ pub fn deny_session(
     sid: String,
     guidance: String,
 ) -> Result<(), String> {
-    deny_sid(&app, &state, &sid, &guidance)
+    deny_sid(&app, &state, &sid, &guidance, ApprovalVia::Tab)
 }
 
 #[tauri::command]
@@ -1257,6 +1306,9 @@ pub fn set_yolo(state: State<'_, Arc<AppState>>, on: bool) -> Result<(), String>
     if !on {
         lock(&state.yolo_seen).clear();
     }
+    telemetry::capture(TelemetryEvent::CommandUsed {
+        name: CommandName::Yolo,
+    });
     Ok(())
 }
 
@@ -1290,7 +1342,12 @@ pub fn ids_snapshot(state: &AppState) -> StableIds {
     lock(&state.ids).clone()
 }
 
-pub fn approve_sid(app: &AppHandle, state: &AppState, sid: &str) -> Result<(), String> {
+pub fn approve_sid(
+    app: &AppHandle,
+    state: &AppState,
+    sid: &str,
+    via: ApprovalVia,
+) -> Result<(), String> {
     let pending = {
         let map = lock(&state.approvals);
         map.get(sid)
@@ -1300,6 +1357,10 @@ pub fn approve_sid(app: &AppHandle, state: &AppState, sid: &str) -> Result<(), S
     let tmux_target = lock(&state.owned).get(sid).map(|e| e.tmux.clone());
     approvals::approve(&pending, tmux_target.as_deref())?;
     lock(&state.approvals).remove(sid);
+    telemetry::capture(TelemetryEvent::ApprovalResolved {
+        via,
+        decision: Decision::Approve,
+    });
     emit_current(app, state);
     Ok(())
 }
@@ -1309,6 +1370,7 @@ pub fn deny_sid(
     state: &AppState,
     sid: &str,
     guidance: &str,
+    via: ApprovalVia,
 ) -> Result<(), String> {
     let pending = {
         let map = lock(&state.approvals);
@@ -1319,16 +1381,30 @@ pub fn deny_sid(
     let tmux_target = lock(&state.owned).get(sid).map(|e| e.tmux.clone());
     approvals::deny(&pending, guidance, tmux_target.as_deref())?;
     lock(&state.approvals).remove(sid);
+    telemetry::capture(TelemetryEvent::ApprovalResolved {
+        via,
+        decision: Decision::Deny,
+    });
     emit_current(app, state);
     Ok(())
 }
 
-pub fn prompt_sid(state: &AppState, sid: &str, text: &str) -> Result<(), String> {
+pub fn prompt_sid(
+    state: &AppState,
+    sid: &str,
+    text: &str,
+    via: PromptVia,
+) -> Result<(), String> {
     {
         let map = lock(&state.owned);
         if let Some(entry) = map.get(sid).cloned() {
             drop(map);
-            return tmux::send(&entry.tmux, text);
+            tmux::send(&entry.tmux, text)?;
+            telemetry::capture(TelemetryEvent::PromptSent {
+                tier: PromptTier::Tmux,
+                via,
+            });
+            return Ok(());
         }
     }
     let sess = {
@@ -1342,7 +1418,12 @@ pub fn prompt_sid(state: &AppState, sid: &str, text: &str) -> Result<(), String>
         }
     };
     if sess.harness == "opencode" {
-        return crate::control::opencode::prompt_async(sid, &sess.cwd, text);
+        crate::control::opencode::prompt_async(sid, &sess.cwd, text)?;
+        telemetry::capture(TelemetryEvent::PromptSent {
+            tier: PromptTier::Api,
+            via,
+        });
+        return Ok(());
     }
     Err("session is observe-only — adopt it on the desktop first".into())
 }

@@ -46,6 +46,15 @@ pub struct Settings {
     pub imessage_push_needs_you: bool,
     #[serde(default)]
     pub imessage_push_stalled: bool,
+    /// Anonymous feature-count analytics (PostHog). Default ON; disclosed once.
+    #[serde(default = "default_true")]
+    pub analytics: bool,
+    /// Random UUID for PostHog distinct_id — never a hardware/user/host id.
+    #[serde(default)]
+    pub distinct_id: String,
+    /// First-launch disclosure toast already shown.
+    #[serde(default)]
+    pub analytics_notice_shown: bool,
 }
 
 fn default_true() -> bool {
@@ -62,6 +71,9 @@ impl Default for Settings {
             imessage_push_done: false,
             imessage_push_needs_you: false,
             imessage_push_stalled: false,
+            analytics: true,
+            distinct_id: String::new(),
+            analytics_notice_shown: false,
         }
     }
 }
@@ -74,6 +86,16 @@ impl Settings {
             "cursor" => self.sources.cursor,
             "opencode" => self.sources.opencode,
             _ => true,
+        }
+    }
+
+    /// Ensure distinct_id exists; returns true if settings should be re-saved.
+    pub fn ensure_distinct_id(&mut self) -> bool {
+        if self.distinct_id.is_empty() {
+            self.distinct_id = crate::telemetry::new_distinct_id();
+            true
+        } else {
+            false
         }
     }
 }
@@ -112,12 +134,16 @@ mod tests {
         s.tv_pause_on_needs_you = false;
         s.imessage_bridge_enabled = true;
         s.imessage_approvals = false;
+        s.analytics = false;
+        s.distinct_id = "abc-123".into();
         save(&path, &s).unwrap();
         let loaded = load(&path);
         assert!(!loaded.sources.codex);
         assert!(!loaded.tv_pause_on_needs_you);
         assert!(loaded.imessage_bridge_enabled);
         assert!(!loaded.imessage_approvals);
+        assert!(!loaded.analytics);
+        assert_eq!(loaded.distinct_id, "abc-123");
         assert!(loaded.source_enabled("claude code"));
         assert!(!loaded.source_enabled("codex"));
         let _ = fs::remove_dir_all(&dir);
@@ -137,6 +163,8 @@ mod tests {
         assert!(!loaded.imessage_bridge_enabled);
         assert!(!loaded.imessage_approvals);
         assert!(!loaded.imessage_push_done);
+        assert!(loaded.analytics, "analytics defaults ON for legacy files");
+        assert!(loaded.distinct_id.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 
