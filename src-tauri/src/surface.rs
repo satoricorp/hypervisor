@@ -30,43 +30,55 @@ enum Dot {
     Red,
 }
 
-/// An RGBA **outline of the "H"** (as in the HYPERVISOR wordmark) for the menu
-/// bar — non-template so it stays colored: red = needs you, yellow = working,
-/// green = all clear. Draws the contour of a bold H (outer + inner edges).
+/// An RGBA **outline of the Xer0 "H"** — the actual HYPERVISOR wordmark glyph
+/// (a distinctive angular form), not a generic block H. Non-template so it
+/// stays colored: red = needs you, yellow = working, green = all clear.
+/// Rasterizes the embedded font glyph, then draws its contour.
 fn icon_image(d: Dot) -> Image<'static> {
+    use ab_glyph::{Font, FontRef, PxScale};
     let (r, g, b) = match d {
         Dot::Green => (70u8, 214, 140),
         Dot::Yellow => (226, 163, 62),
         Dot::Red => (229, 84, 75),
     };
-    const N: i64 = 44;
-    let stroke = 11.0f64;
-    let margin = 8.0f64;
-    let pad_v = 8.0f64;
-    let (top, bot) = (pad_v, N as f64 - pad_v);
-    let left_x = margin;
-    let right_x = N as f64 - margin - stroke;
-    let mid = (top + bot) / 2.0;
-    // Pixel is inside the (filled) bold H letterform?
-    let filled = |x: i64, y: i64| -> bool {
-        if x < 0 || y < 0 || x >= N || y >= N {
-            return false;
+    const N: usize = 48;
+    const XER0: &[u8] = include_bytes!("remote/Xer0-Regular.otf");
+
+    // 1. rasterize the real Xer0 'H' into a filled coverage mask, centered.
+    let mut mask = vec![false; N * N];
+    if let Ok(font) = FontRef::try_from_slice(XER0) {
+        let glyph = font.glyph_id('H').with_scale(PxScale::from(40.0));
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let b = outlined.px_bounds();
+            let ox = (N as f32 - (b.max.x - b.min.x)) / 2.0;
+            let oy = (N as f32 - (b.max.y - b.min.y)) / 2.0;
+            outlined.draw(|gx, gy, cov| {
+                if cov > 0.4 {
+                    let px = (ox + gx as f32).round() as i64;
+                    let py = (oy + gy as f32).round() as i64;
+                    if px >= 0 && py >= 0 && (px as usize) < N && (py as usize) < N {
+                        mask[py as usize * N + px as usize] = true;
+                    }
+                }
+            });
         }
-        let (fx, fy) = (x as f64, y as f64);
-        let lv = fx >= left_x && fx < left_x + stroke && fy >= top && fy < bot;
-        let rv = fx >= right_x && fx < right_x + stroke && fy >= top && fy < bot;
-        let cb = fy >= mid - stroke / 2.0 && fy < mid + stroke / 2.0 && fx >= left_x
-            && fx < right_x + stroke;
-        lv || rv || cb
+    }
+
+    // 2. outline = filled pixels adjacent (within w) to an empty pixel.
+    let filled = |x: i64, y: i64| -> bool {
+        x >= 0
+            && y >= 0
+            && (x as usize) < N
+            && (y as usize) < N
+            && mask[y as usize * N + x as usize]
     };
-    let w: i64 = 2; // outline thickness
-    let mut buf = vec![0u8; (N * N * 4) as usize];
-    for y in 0..N {
-        for x in 0..N {
+    let w: i64 = 2;
+    let mut buf = vec![0u8; N * N * 4];
+    for y in 0..N as i64 {
+        for x in 0..N as i64 {
             if !filled(x, y) {
                 continue;
             }
-            // Edge pixel: some neighbour within `w` is outside the letterform.
             let mut edge = false;
             'scan: for dy in -w..=w {
                 for dx in -w..=w {
@@ -77,7 +89,7 @@ fn icon_image(d: Dot) -> Image<'static> {
                 }
             }
             if edge {
-                let i = ((y * N + x) * 4) as usize;
+                let i = ((y as usize) * N + x as usize) * 4;
                 buf[i] = r;
                 buf[i + 1] = g;
                 buf[i + 2] = b;
