@@ -114,6 +114,8 @@ pub struct AppState {
     /// Persisted settings (sources, tv pause). Autostart is OS-managed separately.
     pub settings: Mutex<Settings>,
     pub settings_path: Mutex<PathBuf>,
+    /// M5: sqlite summary store (history.db). Opened per-op (on-demand).
+    pub history_path: Mutex<PathBuf>,
     /// Placeholders for owned sids whose transcript isn't visible yet.
     pub pending: Mutex<HashMap<String, PendingOwned>>,
     /// sid → pending permission (M3).
@@ -689,10 +691,33 @@ pub fn spawn_session(
         }
     }
     let cwd = spawn_cwd;
+    // M5: which repo's prior summaries to prime the new agent with.
+    let lookup_repo = wt_info
+        .as_ref()
+        .map(|w| w.repo.clone())
+        .unwrap_or_else(|| repo_of(&cwd));
 
     let spawn_time = now_secs();
     let spawned = tmux::spawn(&harness, &model, &cwd)?;
     let tmux_name = spawned.tmux_name.clone();
+
+    // M5: prime the new agent with same-repo prior summaries (best-effort). Sent
+    // as the first message once the pane is ready; skipped when history is empty.
+    {
+        let hp = lock(&state.history_path).clone();
+        let prior = crate::history::open(&hp)
+            .ok()
+            .map(|c| crate::history::same_repo(&c, &lookup_repo, "", 3))
+            .unwrap_or_default();
+        if !prior.is_empty() {
+            let msg = crate::history::context_message(&lookup_repo, &prior);
+            let target = tmux_name.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(3500));
+                let _ = tmux::send(&target, &msg);
+            });
+        }
+    }
     let harness_label = if harness == "claude" {
         "claude code".to_string()
     } else {
@@ -1078,6 +1103,34 @@ pub fn get_usage() -> crate::usage::UsageReport {
     crate::usage::scan(HISTORY_MAX_AGE_HOURS, HISTORY_SCAN_LIMIT)
 }
 
+/// M5: keyword search over stored session summaries (all of history.db).
+#[tauri::command]
+pub fn search_history(state: State<'_, Arc<AppState>>, query: String) -> Vec<HistoryRow> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let path = lock(&state.history_path).clone();
+    let conn = match crate::history::open(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let titles = lock(&state.titles).clone();
+    crate::history::search(&conn, q, 100)
+        .into_iter()
+        .map(|s| HistoryRow {
+            title: titles.get(&s.sid).cloned().unwrap_or_else(|| s.title.clone()),
+            sid: s.sid,
+            harness: s.harness,
+            model: String::new(),
+            mtime: s.archived_at as f64,
+            note: "archived".into(),
+            archived: true,
+            summary: s.summary,
+        })
+        .collect()
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct HistoryRow {
@@ -1088,6 +1141,8 @@ pub struct HistoryRow {
     pub mtime: f64,
     pub note: String,
     pub archived: bool,
+    /// M5: extractive summary from history.db (empty until archived).
+    pub summary: String,
 }
 
 /// Interim history until M5: sessions beyond the sidebar window + archived tombstones.
@@ -1096,6 +1151,14 @@ pub fn list_history(state: State<'_, Arc<AppState>>) -> Vec<HistoryRow> {
     let settings = lock(&state.settings).clone();
     let titles = lock(&state.titles).clone();
     let archived = lock(&state.archived).clone();
+    let hconn = crate::history::open(&lock(&state.history_path).clone()).ok();
+    let summ = |sid: &str| -> String {
+        hconn
+            .as_ref()
+            .and_then(|c| crate::history::get(c, sid))
+            .map(|s| s.summary)
+            .unwrap_or_default()
+    };
 
     // Wide unfiltered scan (hvscan-style) then apply source filter only.
     let mut all = scan_sessions(HISTORY_MAX_AGE_HOURS, HISTORY_SCAN_LIMIT, None);
@@ -1135,6 +1198,7 @@ pub fn list_history(state: State<'_, Arc<AppState>>) -> Vec<HistoryRow> {
                 s.age.clone()
             },
             archived: is_arch,
+            summary: summ(&s.sid),
         });
         seen.insert(s.sid.clone());
     }
@@ -1153,6 +1217,7 @@ pub fn list_history(state: State<'_, Arc<AppState>>) -> Vec<HistoryRow> {
             mtime: at,
             note: "archived".into(),
             archived: true,
+            summary: summ(sid),
         });
     }
 
@@ -1215,7 +1280,36 @@ fn archive_one(state: &AppState, sid: &str) -> Result<String, String> {
         let path = lock(&state.archived_path).clone();
         archived::save(&path, &archived)?;
     }
+    // M5: persist an extractive summary (best-effort; never fails the archive).
+    store_summary(state, sid);
     Ok(toast)
+}
+
+/// M5: extractive-summarize a session and upsert it into history.db. Best-effort
+/// — the transcript file survives archiving, so this reads it; any failure
+/// (no metadata, no transcript, db error) is silently skipped.
+fn store_summary(state: &AppState, sid: &str) {
+    let meta = {
+        let snap = lock(&state.snapshot);
+        snap.iter()
+            .find(|s| s.sid == sid)
+            .map(|s| (s.repo.clone(), s.cwd.clone(), s.title.clone()))
+    };
+    let (repo, cwd, title) = match meta {
+        Some(m) => m,
+        None => return,
+    };
+    let (harness, src) = match resolve_src(state, sid) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let items = transcript::parse_transcript(&src, &harness, 400);
+    let at = now_secs() as i64;
+    let summary = crate::history::summarize(&items, sid, &harness, &repo, &cwd, &title, at);
+    let path = lock(&state.history_path).clone();
+    if let Ok(conn) = crate::history::open(&path) {
+        let _ = crate::history::upsert(&conn, &summary);
+    }
 }
 
 #[tauri::command]
@@ -1580,6 +1674,7 @@ mod archive_tests {
             titles_path: Mutex::new(dir.join("titles.json")),
             settings: Mutex::new(Settings::default()),
             settings_path: Mutex::new(dir.join("settings.json")),
+            history_path: Mutex::new(dir.join("history.db")),
             pending: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             yolo: Mutex::new(false),

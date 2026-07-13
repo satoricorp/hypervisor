@@ -5,6 +5,7 @@ pub mod control;
 pub mod events;
 pub mod grammar;
 pub mod grammar_cli;
+mod history;
 pub mod registry;
 pub mod remote;
 pub mod stable_ids;
@@ -24,7 +25,7 @@ use events::{
     approve_session, archive_idle, archive_session, broadcast_prompt, compact_session,
     deny_session, get_access, get_settings, get_transcript, get_usage, get_yolo, kill_session,
     list_archived, list_history, list_sessions, rename_session, send_prompt, set_settings, set_yolo,
-    spawn_session, start_watcher, unarchive_session, AppState,
+    search_history, spawn_session, start_watcher, unarchive_session, AppState,
 };
 use remote::imessage::imessage_status;
 use remote::remote_status;
@@ -72,6 +73,7 @@ pub fn run() {
                 let _ = control::settings::save(&settings_path, &settings);
             }
 
+            let history_path = data_dir.join("history.db");
             let state = Arc::new(AppState {
                 snapshot: std::sync::Mutex::new(Vec::new()),
                 total: std::sync::Mutex::new(0),
@@ -84,6 +86,7 @@ pub fn run() {
                 titles_path: std::sync::Mutex::new(titles_path),
                 settings: std::sync::Mutex::new(settings),
                 settings_path: std::sync::Mutex::new(settings_path),
+                history_path: std::sync::Mutex::new(history_path),
                 pending: std::sync::Mutex::new(HashMap::new()),
                 approvals: std::sync::Mutex::new(HashMap::new()),
                 yolo: std::sync::Mutex::new(false),
@@ -158,6 +161,7 @@ pub fn run() {
             get_access,
             get_usage,
             list_history,
+            search_history,
             remote_status,
             imessage_status,
             tv::toggle_tv,
