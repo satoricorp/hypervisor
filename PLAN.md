@@ -291,10 +291,13 @@ remote backend, off by default per principle 3).
 AC: create a new agent in a repo with prior sessions; its first context
 message contains those summaries, and the history view finds them by keyword.
 
-- [ ] **M6 — usage + access.** Token/cost ledger from transcripts (claude code and
+- [x] **M6 — usage + access.** Token/cost ledger from transcripts (claude code and
 codex record usage; cursor best-effort), pricing table shipped + updatable,
 subscription-vs-API split, Access view (env/keychain detection, read-only).
 AC: ticker `$x.xx · x.xM TOK` bottom-left matches a hand-check of one day.
+Task file: `tasks/M6.md`. Built 2026-07-13 — `usage.rs` ledger + `get_usage` +
+ticker + usage pane; Access shipped in REALIZE. 59 lib tests; real-data
+cross-check ≈ $46/23.2M tok today.
 
 - [ ] **TV (side-quest, any time after M3).** YouTube in a separate
   `WebviewWindow` satellite that auto-pauses when a session needs you.

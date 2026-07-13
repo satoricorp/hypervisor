@@ -184,6 +184,34 @@ export interface AppSettings {
   auto_worktree: boolean;
 }
 
+export interface UsageTokens {
+  input: number;
+  cache_write: number;
+  cache_read: number;
+  output: number;
+}
+
+export interface UsageRow {
+  harness: string;
+  model: string;
+  tokens: UsageTokens;
+  cost: number;
+}
+
+export interface UsageReport {
+  today_cost: number;
+  today_tokens: number;
+  total_cost: number;
+  total_tokens: number;
+  rows: UsageRow[];
+  api_priced: boolean;
+}
+
+/** M6: token + cost ledger from transcripts (on-demand; reads files). */
+export async function getUsage(): Promise<UsageReport> {
+  return invoke<UsageReport>("get_usage");
+}
+
 export interface ImessageStatus {
   enabled: boolean;
   approvals: boolean;

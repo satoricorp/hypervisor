@@ -11,6 +11,7 @@ pub mod stable_ids;
 pub mod telemetry;
 mod transcript;
 mod tv;
+mod usage;
 
 pub use adapters::{Adapter, Session};
 pub use grammar_cli::run_cmd as run_grammar_cmd;
@@ -21,9 +22,9 @@ pub use registry::{
 use control::adopt::adopt_session;
 use events::{
     approve_session, archive_idle, archive_session, broadcast_prompt, compact_session,
-    deny_session, get_access, get_settings, get_transcript, get_yolo, kill_session, list_archived,
-    list_history, list_sessions, rename_session, send_prompt, set_settings, set_yolo, spawn_session,
-    start_watcher, unarchive_session, AppState,
+    deny_session, get_access, get_settings, get_transcript, get_usage, get_yolo, kill_session,
+    list_archived, list_history, list_sessions, rename_session, send_prompt, set_settings, set_yolo,
+    spawn_session, start_watcher, unarchive_session, AppState,
 };
 use remote::imessage::imessage_status;
 use remote::remote_status;
@@ -155,6 +156,7 @@ pub fn run() {
             get_settings,
             set_settings,
             get_access,
+            get_usage,
             list_history,
             remote_status,
             imessage_status,

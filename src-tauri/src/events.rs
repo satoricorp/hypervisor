@@ -1072,6 +1072,12 @@ pub fn get_access() -> Vec<crate::access::AccessRow> {
     crate::access::probe_access()
 }
 
+/// M6: token + cost ledger. On-demand (reads transcripts) — never the tick.
+#[tauri::command]
+pub fn get_usage() -> crate::usage::UsageReport {
+    crate::usage::scan(HISTORY_MAX_AGE_HOURS, HISTORY_SCAN_LIMIT)
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct HistoryRow {

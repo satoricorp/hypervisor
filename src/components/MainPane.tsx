@@ -6,6 +6,7 @@ import {
 } from "@tauri-apps/plugin-autostart";
 import {
   getAccess,
+  getUsage,
   getSettings,
   getTranscript,
   listArchived,
@@ -13,6 +14,7 @@ import {
   setSettings,
   unarchiveSession,
   type AccessRow,
+  type UsageReport,
   type AppSettings,
   type ArchivedWire,
   type HistoryRow,
@@ -23,35 +25,62 @@ import { useStore } from "../store";
 import { SubagentList } from "./SubagentList";
 import { SubTranscript, TranscriptView } from "./Transcript";
 
+function tokTotal(t: {
+  input: number;
+  cache_write: number;
+  cache_read: number;
+  output: number;
+}): number {
+  return t.input + t.cache_write + t.cache_read + t.output;
+}
+
+function fmtTok(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}k`;
+  return String(n);
+}
+
 function UsagePane() {
-  const { state } = useStore();
-  const counts: Record<string, number> = {};
-  for (const s of state.sessions) {
-    const k = s.app || "other";
-    counts[k] = (counts[k] ?? 0) + 1;
-  }
-  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const [rep, setRep] = useState<UsageReport | null>(null);
+  useEffect(() => {
+    void getUsage()
+      .then(setRep)
+      .catch(() => setRep(null));
+  }, []);
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
       <h4>Usage</h4>
       <div className="tiles">
         <div className="tile">
-          <div className="lbl">Live sessions</div>
-          <div className="val">{state.total || state.sessions.length}</div>
-          <div className="sub2">on the board right now</div>
+          <div className="lbl">Today</div>
+          <div className="val">${rep ? rep.today_cost.toFixed(2) : "—"}</div>
+          <div className="sub2">{rep ? `${fmtTok(rep.today_tokens)} tok` : "…"}</div>
         </div>
-        {rows.map(([harness, n]) => (
-          <div className="tile" key={harness}>
-            <div className="lbl">{harness}</div>
-            <div className="val">{n}</div>
-            <div className="sub2">live</div>
-          </div>
-        ))}
+        <div className="tile">
+          <div className="lbl">Last 30 days</div>
+          <div className="val">${rep ? rep.total_cost.toFixed(2) : "—"}</div>
+          <div className="sub2">{rep ? `${fmtTok(rep.total_tokens)} tok` : "…"}</div>
+        </div>
       </div>
+      {rep && rep.rows.length > 0 ? (
+        rep.rows.map((r) => (
+          <div className="listrow" key={`${r.harness}:${r.model}`}>
+            <span>{r.model}</span>
+            <span className="dim">
+              {r.harness === "claude code" ? "claude" : r.harness} ·{" "}
+              {fmtTok(tokTotal(r.tokens))} tok
+            </span>
+            <span style={{ color: "#57e0c9" }}>${r.cost.toFixed(2)}</span>
+          </div>
+        ))
+      ) : (
+        <p className="footnote">no priced usage in the window yet.</p>
+      )}
       <p className="footnote">
-        cost ledger lands with M6 — no fake dollar numbers. counts are live
-        from the session adapters.
+        api-priced from transcripts (pricing table in src-tauri/src/usage.rs) ·
+        subscription sessions show api-equivalent cost · cursor + opencode omit
+        token usage.
       </p>
     </div>
   );
