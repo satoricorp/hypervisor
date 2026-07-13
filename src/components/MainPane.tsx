@@ -41,6 +41,10 @@ function fmtTok(n: number): string {
   return String(n);
 }
 
+function appShortName(h: string): string {
+  return h === "claude code" ? "claude" : h;
+}
+
 function UsagePane() {
   const [rep, setRep] = useState<UsageReport | null>(null);
   useEffect(() => {
@@ -48,40 +52,87 @@ function UsagePane() {
       .then(setRep)
       .catch(() => setRep(null));
   }, []);
+  const rows = rep?.rows ?? [];
+  const maxCost = Math.max(0.0001, ...rows.map((r) => r.cost));
   return (
     <div className="pane">
       <span className="escnote">esc ↩ session</span>
       <h4>Usage</h4>
       <div className="tiles">
         <div className="tile">
-          <div className="lbl">Today</div>
+          <div className="lbl">Spend · today</div>
           <div className="val">${rep ? rep.today_cost.toFixed(2) : "—"}</div>
-          <div className="sub2">{rep ? `${fmtTok(rep.today_tokens)} tok` : "…"}</div>
+          <div className="sub2">{rep ? `week $${rep.week_cost.toFixed(2)}` : "…"}</div>
         </div>
         <div className="tile">
-          <div className="lbl">Last 30 days</div>
-          <div className="val">${rep ? rep.total_cost.toFixed(2) : "—"}</div>
-          <div className="sub2">{rep ? `${fmtTok(rep.total_tokens)} tok` : "…"}</div>
+          <div className="lbl">Tokens · today</div>
+          <div className="val">{rep ? fmtTok(rep.today_tokens) : "—"}</div>
+          <div className="sub2">
+            {rep
+              ? `in ${fmtTok(rep.today_input)} · out ${fmtTok(rep.today_output)}`
+              : "…"}
+          </div>
+        </div>
+        <div className="tile">
+          <div className="lbl">Subscription</div>
+          <div className="val">
+            {rep ? fmtTok(rep.subscription_tokens) : "—"}
+          </div>
+          <div className="sub2">$0 marginal · covered</div>
+        </div>
+        <div className="tile">
+          <div className="lbl">Sessions · today</div>
+          <div className="val">{rep ? rep.sessions_today : "—"}</div>
+          <div className="sub2">{rep ? `30d $${rep.total_cost.toFixed(2)}` : "…"}</div>
         </div>
       </div>
-      {rep && rep.rows.length > 0 ? (
-        rep.rows.map((r) => (
-          <div className="listrow" key={`${r.harness}:${r.model}`}>
-            <span>{r.model}</span>
-            <span className="dim">
-              {r.harness === "claude code" ? "claude" : r.harness} ·{" "}
-              {fmtTok(tokTotal(r.tokens))} tok
+
+      <div className="usagehdr">cost by model — api-equivalent · 30d</div>
+      {rows.length > 0 ? (
+        rows.slice(0, 12).map((r) => (
+          <div className="urow" key={`${r.harness}:${r.model}`}>
+            <span className="uname">
+              {r.model}
+              <span className="dim"> · {appShortName(r.harness)}</span>
             </span>
-            <span style={{ color: "#57e0c9" }}>${r.cost.toFixed(2)}</span>
+            <span className="utrack">
+              <span
+                className="ufill"
+                style={{ width: `${(r.cost / maxCost) * 100}%` }}
+              />
+            </span>
+            <span className="ucost mint">${r.cost.toFixed(2)}</span>
+            <span className="utok dim">{fmtTok(tokTotal(r.tokens))}</span>
           </div>
         ))
       ) : (
         <p className="footnote">no priced usage in the window yet.</p>
       )}
+
+      {rep && rep.harnesses.length > 0 ? (
+        <>
+          <div className="usagehdr">by harness</div>
+          {rep.harnesses.map((h) => (
+            <div className="listrow" key={h.harness}>
+              <span>
+                {appShortName(h.harness)}
+                <span className="dim"> · {h.plan}</span>
+              </span>
+              <span className="dim">{fmtTok(h.tokens)} tok</span>
+              {h.subscription ? (
+                <span className="incbadge">included</span>
+              ) : (
+                <span className="mint">${h.cost.toFixed(2)}</span>
+              )}
+            </div>
+          ))}
+        </>
+      ) : null}
+
       <p className="footnote">
-        api-priced from transcripts (pricing table in src-tauri/src/usage.rs) ·
-        subscription sessions show api-equivalent cost · cursor + opencode omit
-        token usage.
+        api-equivalent cost from transcript token counts (pricing in
+        src-tauri/src/usage.rs) · subscription-covered harnesses read as $0
+        marginal · cursor + opencode omit token usage.
       </p>
     </div>
   );

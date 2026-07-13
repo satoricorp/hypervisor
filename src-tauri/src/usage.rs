@@ -10,7 +10,7 @@ use chrono::{DateTime, Local, NaiveDate};
 use serde::Serialize;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -83,17 +83,35 @@ pub struct UsageRow {
     pub cost: f64,
 }
 
+/// Per-harness rollup with billing status (subscription vs API key).
+#[derive(Serialize)]
+pub struct HarnessRow {
+    pub harness: String,
+    pub tokens: u64,
+    /// API-equivalent cost of this harness's tokens (what it would cost billed).
+    pub cost: f64,
+    pub plan: String,
+    pub subscription: bool,
+}
+
 #[derive(Serialize)]
 pub struct UsageReport {
-    /// Spend/tokens dated to the local calendar today (what the ticker shows).
+    // Today (the statusbar ticker also reads today_cost / today_tokens).
     pub today_cost: f64,
     pub today_tokens: u64,
-    /// Everything within the scan window.
+    pub today_input: u64,
+    pub today_output: u64,
+    pub week_cost: f64,
+    pub sessions_today: u32,
+    // Whole scan window (~30d), api-equivalent.
     pub total_cost: f64,
     pub total_tokens: u64,
-    /// Per (harness, model), sorted by cost desc.
+    /// Tokens on subscription-covered harnesses (marginal $0).
+    pub subscription_tokens: u64,
+    /// Cost by (harness, model), window, sorted by cost desc.
     pub rows: Vec<UsageRow>,
-    /// True when any priced row used a subscription-covered key (see note).
+    /// Per-harness rollup with subscription/API status.
+    pub harnesses: Vec<HarnessRow>,
     pub api_priced: bool,
 }
 
@@ -103,17 +121,33 @@ struct Acc {
     by_model: HashMap<(String, String), Tokens>,
     today: Tokens,
     today_cost: f64,
+    week_cost: f64,
+    today_sids: HashSet<String>,
 }
 
 impl Acc {
-    fn record(&mut self, harness: &str, model: &str, t: Tokens, is_today: bool) {
+    fn record(
+        &mut self,
+        harness: &str,
+        model: &str,
+        sid: &str,
+        t: Tokens,
+        is_today: bool,
+        is_week: bool,
+    ) {
         self.by_model
             .entry((harness.to_string(), model.to_string()))
             .or_default()
             .add(&t);
+        if is_week {
+            self.week_cost += cost(model, &t);
+        }
         if is_today {
             self.today.add(&t);
             self.today_cost += cost(model, &t);
+            if !sid.is_empty() {
+                self.today_sids.insert(sid.to_string());
+            }
         }
     }
 }
@@ -128,32 +162,75 @@ pub fn scan(max_age_hours: f64, limit: usize) -> UsageReport {
 }
 
 fn finalize(acc: Acc) -> UsageReport {
+    // Cost by (harness, model), window.
     let mut rows: Vec<UsageRow> = acc
         .by_model
-        .into_iter()
-        .map(|((harness, model), tokens)| {
-            let c = cost(&model, &tokens);
-            UsageRow { harness, model, tokens, cost: c }
+        .iter()
+        .map(|((harness, model), tokens)| UsageRow {
+            harness: harness.clone(),
+            model: model.clone(),
+            tokens: *tokens,
+            cost: cost(model, tokens),
         })
         .collect();
     rows.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(Ordering::Equal));
+
+    // Per-harness rollup (tokens + api-equivalent cost) + billing classification.
+    let mut by_harness: HashMap<String, (Tokens, f64)> = HashMap::new();
+    for ((harness, model), tokens) in &acc.by_model {
+        let e = by_harness
+            .entry(harness.clone())
+            .or_insert((Tokens::default(), 0.0));
+        e.0.add(tokens);
+        e.1 += cost(model, tokens);
+    }
+    let mut harnesses: Vec<HarnessRow> = by_harness
+        .into_iter()
+        .map(|(harness, (tokens, c))| {
+            let (subscription, plan) = crate::access::billing_mode(&harness);
+            HarnessRow {
+                harness,
+                tokens: tokens.total(),
+                cost: c,
+                plan,
+                subscription,
+            }
+        })
+        .collect();
+    harnesses.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+
+    let subscription_tokens: u64 = harnesses
+        .iter()
+        .filter(|h| h.subscription)
+        .map(|h| h.tokens)
+        .sum();
     let total_cost: f64 = rows.iter().map(|r| r.cost).sum();
     let total_tokens: u64 = rows.iter().map(|r| r.tokens.total()).sum();
+
     UsageReport {
         today_cost: acc.today_cost,
         today_tokens: acc.today.total(),
+        today_input: acc.today.input,
+        today_output: acc.today.output,
+        week_cost: acc.week_cost,
+        sessions_today: acc.today_sids.len() as u32,
         total_cost,
         total_tokens,
+        subscription_tokens,
         rows,
+        harnesses,
         api_priced: true,
     }
 }
 
-/// True when the ISO-8601 `timestamp` falls on the local calendar `today`.
-fn is_today(ts: Option<&str>, today: NaiveDate) -> bool {
+/// (is_today, is_within_last_7_days) for an ISO-8601 timestamp.
+fn day_buckets(ts: Option<&str>, today: NaiveDate) -> (bool, bool) {
     match ts.and_then(|s| DateTime::parse_from_rfc3339(s).ok()) {
-        Some(dt) => dt.with_timezone(&Local).date_naive() == today,
-        None => false,
+        Some(dt) => {
+            let d = dt.with_timezone(&Local).date_naive();
+            (d == today, d >= today - chrono::Duration::days(6))
+        }
+        None => (false, false),
     }
 }
 
@@ -200,8 +277,10 @@ fn scan_claude(acc: &mut Acc, cutoff: f64, limit: usize, today: NaiveDate) {
                 .and_then(|m| m.as_str())
                 .unwrap_or("claude")
                 .to_string();
-            let today_msg = is_today(v.get("timestamp").and_then(|t| t.as_str()), today);
-            acc.record("claude code", &model, t, today_msg);
+            let ts = v.get("timestamp").and_then(|t| t.as_str());
+            let (today_msg, week_msg) = day_buckets(ts, today);
+            let sid = v.get("sessionId").and_then(|s| s.as_str()).unwrap_or("");
+            acc.record("claude code", &model, sid, t, today_msg, week_msg);
         }
     }
 }
@@ -244,14 +323,20 @@ fn scan_codex(acc: &mut Acc, cutoff: f64, limit: usize, today: NaiveDate) {
             if t.total() == 0 {
                 continue;
             }
-            let today_file = file_mtime(&path)
-                .map(|m| {
-                    chrono::DateTime::from_timestamp(m as i64, 0)
-                        .map(|dt| dt.with_timezone(&Local).date_naive() == today)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            acc.record("codex", &model, t, today_file);
+            let file_date = file_mtime(&path).and_then(|m| {
+                chrono::DateTime::from_timestamp(m as i64, 0)
+                    .map(|dt| dt.with_timezone(&Local).date_naive())
+            });
+            let (today_file, week_file) = match file_date {
+                Some(d) => (d == today, d >= today - chrono::Duration::days(6)),
+                None => (false, false),
+            };
+            let sid = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            acc.record("codex", &model, &sid, t, today_file, week_file);
         }
     }
 }
@@ -347,9 +432,11 @@ mod tests {
 
         let today = Local::now().date_naive();
         let now = Local::now().to_rfc3339();
-        assert!(is_today(Some(&now), today));
-        assert!(!is_today(Some("2020-01-01T00:00:00Z"), today));
-        assert!(!is_today(None, today));
+        assert!(day_buckets(Some(&now), today).0);
+        assert!(day_buckets(Some(&now), today).1);
+        assert!(!day_buckets(Some("2020-01-01T00:00:00Z"), today).0);
+        assert!(!day_buckets(Some("2020-01-01T00:00:00Z"), today).1);
+        assert!(!day_buckets(None, today).0);
     }
 
     #[test]
