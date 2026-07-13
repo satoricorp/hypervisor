@@ -16,8 +16,10 @@ function appShort(app: string): string {
   return app === "claude code" ? "claude" : app;
 }
 
-/** Which repo section a session belongs to (repo-less → "Computer"). */
+/** Which section a session belongs to: Claude desktop-app chats group under
+ *  "Claude"; otherwise by repo, with repo-less sessions under "Computer". */
 function groupLabel(s: Session): string {
+  if (s.entrypoint === "claude-desktop") return "Claude";
   return s.repo && s.repo !== "-" ? s.repo : "Computer";
 }
 
@@ -62,8 +64,21 @@ export function Sidebar() {
         return (
           <Fragment key={s.sid || `i${i}`}>
             {showHeader ? (
-              <div className="grouphdr" title={group === "Computer" ? "sessions not tied to a repo — run jobs from anywhere" : group}>
-                {group === "Computer" ? "▚ Computer" : `⎇ ${group}`}
+              <div
+                className="grouphdr"
+                title={
+                  group === "Computer"
+                    ? "sessions not tied to a repo — run jobs from anywhere"
+                    : group === "Claude"
+                      ? "chats launched from the Claude desktop app"
+                      : group
+                }
+              >
+                {group === "Computer"
+                  ? "▚ Computer"
+                  : group === "Claude"
+                    ? "✳ Claude"
+                    : `⎇ ${group}`}
               </div>
             ) : null}
             <div
