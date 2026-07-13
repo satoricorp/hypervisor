@@ -100,6 +100,10 @@ pub fn adopt_session(
         owned::save(&path, &map)?;
     }
 
+    crate::telemetry::capture(crate::telemetry::TelemetryEvent::SessionAdopted {
+        harness: sess.harness.clone(),
+    });
+
     // Fresh snapshot so the control chip flips without waiting for an fs event.
     let sessions = scan_sessions(MAX_AGE_HOURS, ADOPT_SCAN_LIMIT, None);
     emit_snapshot(&app, &state, sessions);

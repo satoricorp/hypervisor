@@ -13,10 +13,12 @@ documented list. PLAN.md principle 3 must be updated to say exactly this.
 
 ## Inputs (Joe fills these in — the builder blocks without them)
 
-- `POSTHOG_PROJECT_KEY`: phc_…            ← from posthog.com project settings
-- `POSTHOG_HOST`: https://us.i.posthog.com | https://eu.i.posthog.com
-- App analytics default: ON (disclosed at first launch) | OFF (opt-in)
-- Site pageviews on hypervisor.sh: yes | no
+- `POSTHOG_PROJECT_KEY` (staging / local `.env`): `phc_p8Red…` — full key lives in local `.env` (gitignored) → project **hypervisor-staging**
+- `POSTHOG_PROJECT_KEY` (production / GitHub Actions secret): held only in GitHub Actions secrets (`POSTHOG_PROJECT_KEY`), never committed → project **hypervisor** (release app builds + hypervisor.sh site)
+- `POSTHOG_HOST`: https://us.i.posthog.com
+- App analytics default: ON (disclosed at first launch)
+- Site pageviews on hypervisor.sh: yes
+- Split: staging = anything development (`tauri dev` / `.env`); prod = release app + site
 
 ## Architecture — capture from Rust, not the webview
 
@@ -62,11 +64,12 @@ Explicitly forbidden in properties: any free string from user or session
 data. `cargo test` gains a test asserting every capture call site uses the
 typed event enum (no raw string properties possible by construction).
 
-## Site (only if Joe's input says yes)
+## Site (Joe said yes)
 
 `posthog-js` on hypervisor.sh via npm bundle into the static page (no CDN
 script tag), pageview + download-click only, `persistence: 'memory'` (no
-cookies — no banner needed), respect Do Not Track. Amend DEPLOY's site spec
+cookies — no banner needed), respect Do Not Track. Build: `site/` with
+`POSTHOG_PROJECT_KEY` = **production** key. Amend DEPLOY's site spec
 accordingly (its "no analytics" line becomes "PostHog per tasks/POSTHOG.md").
 
 ## Definition of done
@@ -98,4 +101,21 @@ Evidence per DoD, tick POSTHOG in PLAN.md, commit:
 
 ## Evidence
 
-(builder fills this in)
+- Inputs locked 2026-07-11: host=us, default=ON, site=yes; staging key in
+  local `.env` (hypervisor-staging); prod key in GitHub Actions secrets
+  (hypervisor project — release app + site).
+- `src-tauri/build.rs` loads repo-root `.env` → `cargo:rustc-env` so
+  `option_env!` sees keys on `npm run tauri dev` without manual export.
+  Verified: staging `phc_p8Red…` present in debug build artifacts.
+- `.env` gitignored; `.env.example` documents the vars.
+- Toggle off clears queue / skips enqueue (`capture_noop_when_disabled`).
+- Typed `TelemetryEvent` + `properties_are_enums_and_counts_only` test —
+  no free-form session/prompt/path strings can reach the wire by
+  construction. Grep: capture call sites only pass enums/counts/harness
+  labels.
+- `cargo test --lib` → 51 passed. `bunx tsc --noEmit` OK.
+- Settings row: "analytics — anonymous feature counts, never content";
+  first-launch toast when configured + default ON.
+- Site: `site/` bundles posthog-js (memory persistence, DNT, pageview +
+  download click); production key at site build time.
+

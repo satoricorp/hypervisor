@@ -14,6 +14,7 @@ mod tailscale;
 use crate::approvals::ToastEvent;
 use crate::events::{self, AppState, SessionsUpdate};
 use crate::grammar::{self, Action, BoardRow};
+use crate::telemetry::{self, ApprovalVia, PromptVia, TelemetryEvent};
 use keepawake::KeepAwake;
 use serde::Serialize;
 use serde_json::json;
@@ -210,13 +211,15 @@ pub(crate) fn execute_action(
     action: Action,
     rows: &[BoardRow],
     login: &str,
+    approval_via: ApprovalVia,
+    prompt_via: PromptVia,
 ) -> Result<String, String> {
     match action {
         Action::PrintStatus => Ok(grammar::format_status(rows)),
         Action::Help => Ok(grammar::HELP.to_string()),
         Action::Err(e) => Err(e),
         Action::Approve { sid, letter } => {
-            events::approve_sid(app, state, &sid)?;
+            events::approve_sid(app, state, &sid, approval_via)?;
             let n = rows
                 .iter()
                 .find(|r| r.sid == sid)
@@ -226,17 +229,17 @@ pub(crate) fn execute_action(
             Ok(grammar::echo_approved(letter, n, &title_of(rows, &sid)))
         }
         Action::Deny { sid, n, guidance } => {
-            events::deny_sid(app, state, &sid, &guidance)?;
+            events::deny_sid(app, state, &sid, &guidance, approval_via)?;
             toast_remote(app, "denied", login);
             Ok(grammar::echo_denied(n, &title_of(rows, &sid)))
         }
         Action::Prompt { sid, n, text } => {
-            events::prompt_sid(state, &sid, &text)?;
+            events::prompt_sid(state, &sid, &text, prompt_via)?;
             toast_remote(app, "prompted", login);
             Ok(grammar::echo_sent(n, &title_of(rows, &sid)))
         }
         Action::Nudge { sid, n } => {
-            events::prompt_sid(state, &sid, "continue")?;
+            events::prompt_sid(state, &sid, "continue", prompt_via)?;
             toast_remote(app, "nudged", login);
             Ok(grammar::echo_sent(n, &title_of(rows, &sid)))
         }
@@ -254,7 +257,15 @@ pub(crate) fn run_command(
     let ids = events::ids_snapshot(state);
     let cmd = grammar::parse(text);
     let action = grammar::plan(&cmd, &rows, &ids);
-    execute_action(app, state, action, &rows, login)
+    execute_action(
+        app,
+        state,
+        action,
+        &rows,
+        login,
+        ApprovalVia::Remote,
+        PromptVia::Remote,
+    )
 }
 
 fn read_json_body(req: &mut Request) -> Result<serde_json::Value, String> {
@@ -314,6 +325,7 @@ fn handle(
             forbidden(request, &msg);
             return;
         }
+        telemetry::capture(TelemetryEvent::RemotePageOpened);
         let html = PAGE
             .replace("{{HOST}}", &cfg.host)
             .replace("{{LOGIN}}", cfg.login.as_deref().unwrap_or("—"));

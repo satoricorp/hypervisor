@@ -340,6 +340,19 @@ function SettingsPane() {
       </p>
       <h4>General</h4>
       <div className="listrow">
+        <span>analytics</span>
+        <span className="dim">anonymous feature counts, never content</span>
+        <Switch
+          on={settings.analytics}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              analytics: !settings.analytics,
+            })
+          }
+        />
+      </div>
+      <div className="listrow">
         <span>tv: pause when a session needs me</span>
         <span className="dim">interrupts the youtube pip</span>
         <Switch
@@ -361,7 +374,7 @@ function SettingsPane() {
         />
       </div>
       <p className="footnote">
-        settings.json in app data · notifications return with M7 ·
+        settings.json in app data · analytics = names/counts only (see tasks/POSTHOG.md) ·
         auto-worktree returns with M4
       </p>
     </div>

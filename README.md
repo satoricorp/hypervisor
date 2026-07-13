@@ -17,11 +17,31 @@ an isolated `tmux -L hypervisor` socket. Hypervisor is not an editor.
 ## Run
 
 ```bash
+cp .env.example .env   # once — staging PostHog key for local builds
 npm install
 npm run tauri dev
 ```
 
-The Vite/Tauri webview expects port **1420** (strict — do not remount elsewhere).
+`src-tauri/build.rs` loads the repo-root `.env` at compile time and bakes
+`POSTHOG_PROJECT_KEY` / `POSTHOG_HOST` into the binary (`option_env!`). Process
+env / CI secrets override `.env`. No key → telemetry is fully inert.
+
+## Analytics (PostHog)
+
+Content-free feature counts only — schema in `tasks/POSTHOG.md`. Gated by
+Settings → analytics (default on, disclosed once at first launch).
+
+| Build | Project | Key source |
+|---|---|---|
+| `tauri dev` / local | **hypervisor-staging** | repo-root `.env` (gitignored) |
+| Release DMG + hypervisor.sh | **hypervisor** | GitHub Actions secrets `POSTHOG_PROJECT_KEY` + `POSTHOG_HOST` |
+
+Site pageviews (cookie-less, `persistence: 'memory'`, respects DNT):
+
+```bash
+cd site && npm install
+POSTHOG_PROJECT_KEY=… POSTHOG_HOST=https://us.i.posthog.com npm run build
+```
 
 ## Headless checks
 

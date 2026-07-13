@@ -414,7 +414,15 @@ fn run_gated(
     let action = crate::grammar::plan(&cmd, &rows, &ids);
     let action = gate_action(action, approvals)?;
     // TODO(M5): history line — `… via remote · imessage · HH:MM`
-    remote::execute_action(app, state, action, &rows, LOGIN)
+    remote::execute_action(
+        app,
+        state,
+        action,
+        &rows,
+        LOGIN,
+        crate::telemetry::ApprovalVia::Remote,
+        crate::telemetry::PromptVia::Imessage,
+    )
 }
 
 fn default_reply_handle(self_chats: &[SelfChat]) -> Option<String> {

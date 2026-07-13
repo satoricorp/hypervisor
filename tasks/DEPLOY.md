@@ -38,8 +38,9 @@ only.
    tokens (dark, Berkeley Mono, Xer0 wordmark), the one-liner ("Conductor
    runs your agents; Hypervisor watches all of them…"), a download button,
    version + sha256, and the honest unsigned note: "first launch:
-   right-click → Open (unsigned until notarization lands)". No analytics,
-   no third-party assets (same zero-remote-content discipline as the app).
+   right-click → Open (unsigned until notarization lands)". Analytics on the
+   site are PostHog pageview + download-click only per tasks/POSTHOG.md
+   (cookie-less, production project key at site build time).
 3. **Release script** `scripts/release.sh`: refuses on dirty tree; reads
    version from tauri.conf.json; exports `POSTHOG_PROJECT_KEY` +
    `POSTHOG_HOST` (from env/GitHub secrets — official analytics are baked
@@ -80,9 +81,8 @@ only.
 
 ## Scope fence
 
-- Static site only. No server code on AWS. No telemetry or analytics here —
-  site pageviews, if Joe opts in, arrive only via tasks/POSTHOG.md's site
-  section (cookie-less), not this task.
+- Static site only. No server code on AWS. Site analytics only via
+  tasks/POSTHOG.md (cookie-less posthog-js bundle) — never session content.
 - The remote/phone server config is untouched — do not "helpfully" add a
   public mode.
 - Do not bypass Gatekeeper checks in docs (no `xattr -d com.apple.quarantine`
