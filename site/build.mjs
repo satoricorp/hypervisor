@@ -60,5 +60,11 @@ if (!html.includes("analytics.js")) {
   );
 }
 
+// Release metadata, injected by scripts/release.sh (defaults keep local
+// `npm run build` working without a real release).
+const version = process.env.RELEASE_VERSION || "dev";
+const sha256 = process.env.RELEASE_SHA256 || "—";
+html = html.replaceAll("__VERSION__", version).replaceAll("__SHA256__", sha256);
+
 writeFileSync(join(__dirname, "dist/index.html"), html);
 console.log("[site] built → site/dist/");
