@@ -429,6 +429,8 @@ fn emit_update(app: &AppHandle, state: &AppState, wire: Vec<SessionWire>, total:
     };
     let _ = app.emit("sessions:update", &update);
     crate::remote::broadcast_sessions(&state.remote_bus, &update);
+    // M7: refresh the menu-bar dot / count / dock badge + fire needs-you pushes.
+    crate::surface::refresh(app, state);
 }
 
 pub(crate) fn emit_snapshot(app: &AppHandle, state: &AppState, sessions: Vec<Session>) {
