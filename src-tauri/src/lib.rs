@@ -9,6 +9,7 @@ mod history;
 pub mod registry;
 pub mod remote;
 pub mod stable_ids;
+mod surface;
 pub mod telemetry;
 mod transcript;
 mod tv;
@@ -47,6 +48,16 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        surface::show_window(app);
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -97,6 +108,15 @@ pub fn run() {
             app.manage(Arc::clone(&state));
             start_watcher(app.handle().clone(), Arc::clone(&state));
             remote::start(app.handle().clone(), Arc::clone(&state));
+
+            // M7: menu-bar tray + ⌥Space global shortcut.
+            if let Err(e) = surface::init(app.handle()) {
+                eprintln!("tray init failed: {e}");
+            }
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let _ = app.global_shortcut().register("Alt+Space");
+            }
 
             // app_opened after a short delay so the first scan can populate counts.
             let handle = app.handle().clone();
