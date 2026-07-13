@@ -3,12 +3,117 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hypervisor</title>
-  <!-- Full marketing page lands with tasks/DEPLOY.md. PostHog: tasks/POSTHOG.md. -->
+  <title>Hypervisor — watch every agent from one bar</title>
+  <meta name="description" content="Conductor runs your agents; Hypervisor watches all of them, wherever they run, and lets you conduct from one bar. Local-first macOS app." />
+  <!--
+    Static single page. No CDN, no remote assets (same zero-remote-content
+    discipline as the app). Berkeley Mono / Xer0 are licensed local fonts —
+    embed as woff2 here once web-licensed; until then, monospace fallback.
+    __VERSION__ / __SHA256__ are filled at release time by site/build.mjs.
+    Analytics: site/analytics.js (PostHog pageview + download click; cookie-less).
+  -->
+  <style>
+    :root {
+      --bg: #0a0c0e; --surface: #10141a; --surface-2: #151a21; --inset: #0c0f13;
+      --border: #1f242b; --border-2: #2e3540;
+      --ink: #dee3e8; --ink-2: #8a93a0; --ink-3: #545e6b;
+      --ok: #46d68c; --busy: #e2a33e; --err: #e5544b; --mint: #57e0c9;
+      --mono: ui-monospace, "SF Mono", "Berkeley Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--bg); color: var(--ink); font-family: var(--mono);
+      font-size: 13px; line-height: 1.55; letter-spacing: -0.01em;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    .wrap { width: 100%; max-width: 720px; margin: 0 auto; padding: 0 24px; flex: 1; display: flex; flex-direction: column; }
+    header { padding: 40px 0 0; }
+    .brand { font-size: 15px; letter-spacing: 0.32em; font-weight: 600; color: var(--ink); }
+    .brand b { font-weight: 600; }
+    main { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 48px 0; }
+    h1 {
+      font-size: clamp(22px, 4.6vw, 34px); font-weight: 500; line-height: 1.32;
+      margin: 0 0 18px; letter-spacing: -0.02em; color: var(--ink);
+    }
+    h1 .dim { color: var(--ink-2); }
+    .sub { color: var(--ink-2); max-width: 52ch; margin: 0 0 36px; }
+    .dots { display: inline-flex; gap: 6px; vertical-align: middle; margin-left: 2px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.ok { background: var(--ok); } .dot.busy { background: var(--busy); } .dot.err { background: var(--err); }
+    .cta { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+    a.download {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--ink); color: var(--bg); text-decoration: none;
+      font-weight: 600; padding: 11px 18px; border-radius: 3px;
+      border: 1px solid var(--ink); letter-spacing: 0.01em;
+    }
+    a.download:hover { background: #fff; border-color: #fff; }
+    a.download .arch { color: var(--ink-3); font-weight: 500; }
+    .meta { color: var(--ink-3); font-size: 11.5px; }
+    .meta .v { color: var(--ink-2); }
+    .sha { font-variant-numeric: tabular-nums; word-break: break-all; }
+    .note {
+      margin-top: 34px; padding: 12px 14px; background: var(--surface);
+      border: 1px solid var(--border); border-left: 2px solid var(--busy);
+      border-radius: 3px; color: var(--ink-2); font-size: 12px; max-width: 56ch;
+    }
+    .note b { color: var(--ink); font-weight: 600; }
+    .grid { margin-top: 44px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+    .cell { background: var(--surface); padding: 14px 16px; }
+    .cell .k { color: var(--ink-3); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.1em; }
+    .cell .d { color: var(--ink-2); margin-top: 5px; font-size: 12px; }
+    footer { color: var(--ink-3); font-size: 11px; padding: 28px 0 36px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    footer a { color: var(--ink-2); text-decoration: none; }
+    footer a:hover { color: var(--ink); }
+  </style>
 </head>
 <body>
-  <p>Hypervisor — site content lands with DEPLOY.</p>
-  <a href="/releases/latest/" data-download>Download</a>
+  <div class="wrap">
+    <header>
+      <div class="brand">H Y P E R V I S O R</div>
+    </header>
+
+    <main>
+      <h1>
+        conduct every agent from one bar
+        <span class="dots"><i class="dot busy"></i><i class="dot ok"></i><i class="dot err"></i></span>
+      </h1>
+      <p class="sub">
+        Conductor runs your agents; Hypervisor <span style="color:var(--ink)">watches all of them</span>,
+        wherever they run — claude code, codex, cursor, opencode — and lets you approve, prompt,
+        and conduct from one place. local-first. your keys, your machine.
+      </p>
+
+      <div class="cta">
+        <a class="download" href="/releases/latest/Hypervisor.dmg" data-download>
+          download for macOS <span class="arch">· apple silicon</span>
+        </a>
+        <span class="meta">
+          <span class="v">v__VERSION__</span><br />
+          <span class="sha">sha256 __SHA256__</span>
+        </span>
+      </div>
+
+      <div class="note">
+        <b>unsigned build.</b> first launch: right-click the app → <b>Open</b> → Open.
+        macOS blocks a normal double-click until notarization lands. we never ask you to
+        disable Gatekeeper.
+      </div>
+
+      <div class="grid">
+        <div class="cell"><div class="k">observer-first</div><div class="d">monitors sessions wherever they started — never moves your workflow</div></div>
+        <div class="cell"><div class="k">byo tokens</div><div class="d">requests go direct to each vendor. hypervisor never proxies or stores keys</div></div>
+        <div class="cell"><div class="k">local-first</div><div class="d">history + settings on disk in your Library. no cloud dependency</div></div>
+      </div>
+    </main>
+
+    <footer>
+      <span>hypervisor.sh</span>
+      <span>a <a href="/">satori</a> thing · not an editor</span>
+    </footer>
+  </div>
   <script src="./analytics.js"></script>
 </body>
 </html>

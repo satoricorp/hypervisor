@@ -97,4 +97,34 @@ tick DEPLOY in PLAN.md, note Phase 2 blockers (Apple enrollment) — commit:
 
 ## Evidence
 
-(builder fills this in)
+**Phase 1 code complete + locally verified (2026-07-12). Live cutover gated on
+Joe's AWS/DNS actions. Apple signing SKIPPED per Joe → ships unsigned.**
+
+Built this session:
+- `scripts/infra.sh` — idempotent S3 (private, OAC) + ACM (us-east-1, DNS) +
+  CloudFront. Two-pass (prints validation records, stops until cert ISSUED,
+  then builds the dist + scoped bucket policy). `bash -n` OK.
+- `scripts/release.sh` — refuses dirty tree; version from tauri.conf.json;
+  `npm run tauri build`; sha256; builds `site/`; uploads DMG (versioned +
+  `latest/`) + `latest.json`; `s3 sync` site; CloudFront invalidation. Warns
+  loudly on a keyless build. `bash -n` OK.
+- `site/index.html` — real landing (design tokens, one-liner, download +
+  version + sha256, unsigned note, 3 principle cells). Renders verified.
+- `site/build.mjs` — injects `RELEASE_VERSION`/`RELEASE_SHA256`; local
+  `npm run build` → `dist/index.html` with substitutions, analytics inert
+  without a key. Verified.
+- `.github/workflows/macos-release.yaml` — tag `v*` runs `release.sh` (same
+  artifacts as local, DoD #5); tag↔tauri.conf.json version parity gate.
+
+Apple skipped (Joe, 2026-07-12): no codesign/notarize; `tauri-updater` signing
+deferred; `latest.json` signature empty (scaffold); site unsigned note stays.
+
+Joe-gated live DoD (I do not run infra against the account):
+1. `./scripts/infra.sh` (Pass 1) → add printed ACM CNAMEs at the hypervisor.sh
+   registrar → wait ISSUED → `./scripts/infra.sh` (Pass 2).
+2. Point `hypervisor.sh` + `www` at the CloudFront domain (recommend: Route53
+   hosted zone + repoint registrar NS, for clean apex ALIAS).
+3. GitHub → repo Variables `SITE_BUCKET`, `CLOUDFRONT_DIST_ID`, `POSTHOG_HOST`;
+   Secrets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `POSTHOG_PROJECT_KEY`.
+4. `DIST_ID=<id> POSTHOG_PROJECT_KEY=<prod> ./scripts/release.sh`.
+5. `curl -I https://hypervisor.sh` → 200 · `python3 spike/compare.py --limit 20`.

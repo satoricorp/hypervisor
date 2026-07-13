@@ -1,0 +1,67 @@
+name: macOS release
+
+# Tag push `vX.Y.Z` → build the unsigned DMG + publish hypervisor.sh.
+# Runs the SAME scripts/release.sh as a local release, so CI and local produce
+# identical artifacts (DEPLOY DoD #5). Phase-2 signing/notarization is skipped
+# (no Apple Developer ID) — the build ships unsigned.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build + publish
+    runs-on: macos-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      BUCKET: ${{ vars.SITE_BUCKET || 'hypervisor-sh-site' }}
+      DIST_ID: ${{ vars.CLOUDFRONT_DIST_ID }}
+      POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+      POSTHOG_HOST: ${{ vars.POSTHOG_HOST || 'https://us.i.posthog.com' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches tauri.conf.json version
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          conf="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          [ "$conf" = "$tag" ] || { echo "tag v$tag != tauri.conf.json $conf"; exit 1; }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install aws cli
+        run: command -v aws >/dev/null || brew install awscli
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Preflight — DIST_ID present
+        run: |
+          [ -n "${DIST_ID:-}" ] || { echo "vars.CLOUDFRONT_DIST_ID is unset — set it after scripts/infra.sh"; exit 1; }
+
+      - name: Build + publish
+        run: bash scripts/release.sh
