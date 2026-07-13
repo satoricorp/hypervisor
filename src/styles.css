@@ -116,8 +116,25 @@ html, body, #root {
   .obstag {
     font-size: 8.5px; letter-spacing: .08em; color: var(--ink-3);
     border: 1px dashed var(--border-2); border-radius: var(--r-chip);
-    padding: 0 4px; text-transform: uppercase;
+    padding: 0 4px; text-transform: uppercase; flex: none;
   }
+
+  /* repo section headers in the sidebar (Computer = repo-less jobs) */
+  .grouphdr {
+    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-3); padding: 11px 10px 4px 9px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .grouphdr:first-of-type { padding-top: 5px; }
+  /* inline hypervisor-only rename */
+  .renameinput {
+    grid-column: 3; font: inherit; font-size: 11.5px; color: var(--ink);
+    background: var(--inset); border: 1px solid var(--sel);
+    border-radius: 3px; padding: 1px 5px; width: 100%; outline: none;
+  }
+  .srow .m .apphint { display: inline-flex; flex: none; }
+  .srow .m .apphint svg { width: 11px; height: 11px; opacity: .8; }
+  .pausechip { color: var(--busy); flex: none; }
 
   /* ————— main: session detail ————— */
   .dwrap { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }

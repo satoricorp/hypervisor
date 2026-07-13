@@ -45,8 +45,10 @@ export function Titlebar() {
   }
 
   return (
-    <div className="titlebar">
-      <span className="mark">
+    // data-tauri-drag-region makes the custom titlebar draggable (the window
+    // uses titleBarStyle: Overlay, so without this the window won't move).
+    <div className="titlebar" data-tauri-drag-region>
+      <span className="mark" data-tauri-drag-region>
         HYPERVISOR<small>v0.1 · variant B</small>
       </span>
       <button
@@ -57,17 +59,15 @@ export function Titlebar() {
         onClick={(e) => onTv(e.altKey)}
       >
         <svg
-          width="13"
-          height="13"
+          width="15"
+          height="15"
           viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
           aria-hidden="true"
         >
-          <rect x="2.5" y="4.5" width="19" height="14" rx="2" />
-          <rect x="11.5" y="11" width="7" height="4.8" rx="1" fill="currentColor" stroke="none" />
+          <path
+            fill="#ffffff"
+            d="M23.5 6.5a3 3 0 0 0-2.11-2.12C19.5 3.86 12 3.86 12 3.86s-7.5 0-9.39.52A3 3 0 0 0 .5 6.5 31.3 31.3 0 0 0 0 12a31.3 31.3 0 0 0 .5 5.5 3 3 0 0 0 2.11 2.12c1.89.52 9.39.52 9.39.52s7.5 0 9.39-.52A3 3 0 0 0 23.5 17.5 31.3 31.3 0 0 0 24 12a31.3 31.3 0 0 0-.5-5.5zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"
+          />
         </svg>
         tv
       </button>
