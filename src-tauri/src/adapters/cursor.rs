@@ -103,6 +103,9 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Result<Vec<RawSession>, Str
             _ => Value::Object(Default::default()),
         };
         let cid = cid.unwrap_or_default();
+        // Encode the full composerId into src so the transcript reader can find
+        // this session's bubbles (sid is truncated to 8 chars for display).
+        let s_src = format!("{db}#{cid}");
         let sid = if cid.len() >= 8 {
             cid[..8].to_string()
         } else {
@@ -131,7 +134,7 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Result<Vec<RawSession>, Str
             String::new()
         };
         let cwd = folders.get(&wsid).cloned().unwrap_or_default();
-        let mut s = empty_raw("cursor", &sid, ts, &db);
+        let mut s = empty_raw("cursor", &sid, ts, &s_src);
         s.title = title;
         s.model = model;
         s.cwd = cwd;
