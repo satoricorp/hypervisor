@@ -15,12 +15,14 @@ export async function spawnSession(
   model: string,
   cwd?: string | null,
   via: "new" | "subagents" = "new",
+  worktree?: boolean | null,
 ): Promise<string> {
   return invoke<string>("spawn_session", {
     harness,
     model,
     cwd: cwd ?? null,
     via,
+    worktree: worktree ?? null,
   });
 }
 
@@ -179,6 +181,7 @@ export interface AppSettings {
   analytics: boolean;
   distinct_id: string;
   analytics_notice_shown: boolean;
+  auto_worktree: boolean;
 }
 
 export interface ImessageStatus {

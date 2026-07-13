@@ -22,6 +22,7 @@ export interface SessionWire {
   approval?: string | null;
   n?: number;
   letter?: string | null;
+  worktree?: string | null;
 }
 
 function mapState(state: string): SessionState {
@@ -64,6 +65,7 @@ export function wireToSession(w: SessionWire): Session {
     ctl: mapControl(w.control),
     repo: w.repo && w.repo !== "-" ? w.repo : undefined,
     br: w.branch || undefined,
+    wt: w.worktree || undefined,
     cwd: w.cwd || undefined,
     sid: w.sid,
     age: w.age,

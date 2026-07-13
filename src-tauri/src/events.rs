@@ -6,7 +6,7 @@ use crate::control::archived::{self, ArchivedMap, ArchivedWire};
 use crate::control::owned::OwnedMap;
 use crate::control::settings::{self, Settings};
 use crate::control::titles::{self, TitlesMap};
-use crate::control::{opencode, owned, tmux};
+use crate::control::{opencode, owned, tmux, worktree as wt};
 use crate::registry::{scan_sessions, watch_sessions, HealthSnapshot, SnapshotReason};
 use crate::remote::SseBus;
 use crate::stable_ids::{self, StableIds};
@@ -61,6 +61,8 @@ pub struct SessionWire {
     pub n: u32,
     /// Pending approval letter A–Z when needs_you (M7g).
     pub letter: Option<String>,
+    /// M4: worktree directory name when this session runs in its own tree.
+    pub worktree: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -92,6 +94,7 @@ pub struct PendingOwned {
     pub cwd: String,
     pub tmux_name: String,
     pub spawn_time: f64,
+    pub worktree: Option<owned::Worktree>,
 }
 
 pub struct AppState {
@@ -143,6 +146,54 @@ fn repo_of(cwd: &str) -> String {
         .to_string()
 }
 
+/// M4: does the repo's main working tree already have a live session? Our
+/// isolated worktrees live outside `root`, so they don't count — which is what
+/// lets a second `/new` share the tree only when it is genuinely free.
+fn main_tree_busy(state: &AppState, cwd: &str) -> bool {
+    let root = match wt::repo_root(cwd) {
+        Some(r) => r,
+        None => return false,
+    };
+    let snap = lock(&state.snapshot);
+    snap.iter().any(|s| is_in_main_tree(&s.cwd, &root))
+}
+
+/// Is `cwd` inside the repo's *main* working tree at `root`? A sibling worktree
+/// (`<root>.hv-…`) is NOT — it's a different tree — so it never marks the main
+/// tree busy. That's what keeps isolated sessions from over-isolating the next.
+fn is_in_main_tree(cwd: &str, root: &str) -> bool {
+    cwd == root || cwd.starts_with(&format!("{root}/"))
+}
+
+/// Worktree directory leaf for the header (e.g. `hypervisor.hv-1a2b3c4d`).
+fn wt_basename(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+#[cfg(test)]
+mod worktree_decision_tests {
+    use super::is_in_main_tree;
+
+    #[test]
+    fn sibling_worktree_does_not_mark_main_tree_busy() {
+        let root = "/Users/joe/git/foo";
+        assert!(is_in_main_tree(root, root), "the root itself is in-tree");
+        assert!(
+            is_in_main_tree("/Users/joe/git/foo/src", root),
+            "a subdir is in-tree"
+        );
+        // Our isolated worktree lives beside the repo — must NOT count as busy,
+        // or two isolated sessions would each keep isolating the next forever.
+        assert!(!is_in_main_tree("/Users/joe/git/foo.hv-1a2b3c4d", root));
+        // A different repo that merely shares a name prefix must not match.
+        assert!(!is_in_main_tree("/Users/joe/git/foobar", root));
+    }
+}
+
 fn control_for(sid: &str, harness: &str, owned: &OwnedMap) -> String {
     if owned.contains_key(sid) {
         "tmux".into()
@@ -177,26 +228,34 @@ fn to_wire(
                 .get(&s.sid)
                 .cloned()
                 .unwrap_or_else(|| s.title.clone());
+            // M4: an owned worktree session shows the shared repo + its dedicated
+            // branch + worktree dir — not the worktree path's basename.
+            let (repo, branch, worktree) =
+                match owned.get(&s.sid).and_then(|e| e.worktree.as_ref()) {
+                    Some(w) => (w.repo.clone(), w.branch.clone(), Some(wt_basename(&w.path))),
+                    None => (s.repo.clone(), s.branch.clone(), None),
+                };
             SessionWire {
                 harness: s.harness.clone(),
                 sid: s.sid.clone(),
                 title,
                 model: s.model.clone(),
                 cwd: s.cwd.clone(),
-                branch: s.branch.clone(),
+                branch,
                 last_user: s.last_user.clone(),
                 last_assistant: s.last_assistant.clone(),
                 activity: s.activity.clone(),
                 mtime: s.mtime,
                 state,
                 age: s.age.clone(),
-                repo: s.repo.clone(),
+                repo,
                 src: s.src.clone(),
                 sidechains: s.sidechains,
                 control: control_for(&s.sid, &s.harness, owned),
                 approval,
                 n,
                 letter,
+                worktree,
             }
         })
         .collect()
@@ -233,6 +292,10 @@ fn merge_pending(
         let letter = ids.letter_of_sid(sid).map(|c| c.to_string());
         let derived = format!("new session — {}", &sid[..8.min(sid.len())]);
         let title = titles.get(sid).cloned().unwrap_or(derived);
+        let (repo, branch, worktree) = match &p.worktree {
+            Some(w) => (w.repo.clone(), w.branch.clone(), Some(wt_basename(&w.path))),
+            None => (repo_of(&p.cwd), String::new(), None),
+        };
         wire.insert(
             0,
             SessionWire {
@@ -241,20 +304,21 @@ fn merge_pending(
                 title,
                 model: p.model.clone(),
                 cwd: p.cwd.clone(),
-                branch: String::new(),
+                branch,
                 last_user: String::new(),
                 last_assistant: String::new(),
                 activity: String::new(),
                 mtime: p.spawn_time,
                 state,
                 age: "now".into(),
-                repo: repo_of(&p.cwd),
+                repo,
                 src: String::new(),
                 sidechains: 0,
                 control: "tmux".into(),
                 approval,
                 n,
                 letter,
+                worktree,
             },
         );
     }
@@ -577,8 +641,55 @@ pub fn spawn_session(
     model: String,
     cwd: Option<String>,
     via: Option<String>,
+    worktree: Option<bool>,
 ) -> Result<String, String> {
     let cwd = cwd.unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".into()));
+
+    // M4: never let two sessions share one working tree. `/worktree` forces
+    // isolation; `/new` auto-isolates when the repo's main tree already has an
+    // active session and the setting is on. If git can't make a worktree, an
+    // auto spawn falls back to the shared tree (with a toast); an explicit one
+    // errors.
+    let force_wt = worktree == Some(true);
+    let want_wt = match worktree {
+        Some(b) => b,
+        None => {
+            let auto = lock(&state.settings).auto_worktree;
+            auto && main_tree_busy(&state, &cwd)
+        }
+    };
+    let mut spawn_cwd = cwd.clone();
+    let mut wt_info: Option<owned::Worktree> = None;
+    if want_wt {
+        match wt::repo_root(&cwd) {
+            Some(root) => match wt::add(&root) {
+                Ok(created) => {
+                    wt_info = Some(owned::Worktree {
+                        repo: wt::repo_label(&root),
+                        branch: created.branch,
+                        path: created.path.clone(),
+                    });
+                    spawn_cwd = created.path;
+                }
+                Err(e) if force_wt => return Err(format!("worktree add failed: {e}")),
+                Err(e) => {
+                    let _ = app.emit(
+                        "toast",
+                        &ToastEvent {
+                            label: "worktree unavailable — sharing the tree".into(),
+                            detail: Some(e),
+                        },
+                    );
+                }
+            },
+            None if force_wt => {
+                return Err("not a git repo — can't create a worktree".into())
+            }
+            None => {}
+        }
+    }
+    let cwd = spawn_cwd;
+
     let spawn_time = now_secs();
     let spawned = tmux::spawn(&harness, &model, &cwd)?;
     let tmux_name = spawned.tmux_name.clone();
@@ -593,9 +704,13 @@ pub fn spawn_session(
         via: spawn_via,
     });
     telemetry::capture(TelemetryEvent::CommandUsed {
-        name: match spawn_via {
-            SpawnVia::Subagents => CommandName::Subagents,
-            SpawnVia::New => CommandName::New,
+        name: if force_wt {
+            CommandName::Worktree
+        } else {
+            match spawn_via {
+                SpawnVia::Subagents => CommandName::Subagents,
+                SpawnVia::New => CommandName::New,
+            }
         },
     });
 
@@ -604,7 +719,8 @@ pub fn spawn_session(
             let mut map = lock(&state.owned);
             map.insert(
                 sid.clone(),
-                owned::OwnedEntry::new(tmux_name.clone(), harness_label.clone()),
+                owned::OwnedEntry::new(tmux_name.clone(), harness_label.clone())
+                    .with_worktree(wt_info.clone()),
             );
             let path = lock(&state.owned_path).clone();
             owned::save(&path, &map)?;
@@ -617,6 +733,7 @@ pub fn spawn_session(
                 cwd: cwd.clone(),
                 tmux_name: tmux_name.clone(),
                 spawn_time,
+                worktree: wt_info.clone(),
             },
         );
         let sessions = scan_sessions(MAX_AGE_HOURS, SCAN_LIMIT, None);

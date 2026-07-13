@@ -56,6 +56,18 @@ function menuItemsFor(state: AppState): MenuItem[] {
       }
       // /kill only for owned tmux.
       if (c.id === "kill" && sel?.ctl !== "tmux") return false;
+      // /worktree needs a selected session in a spawnable repo.
+      if (c.id === "worktree") {
+        if (!sel?.cwd) return false;
+        const app = sel.app;
+        if (
+          app !== "claude code" &&
+          app !== "claude" &&
+          app !== "codex" &&
+          app !== "opencode"
+        )
+          return false;
+      }
       const label = c.label.slice(1).toLowerCase(); // without leading /
       // Trailing-text commands: match prefix word so `/rename foo` still hits.
       if (c.id === "rename") {
@@ -895,6 +907,11 @@ export function chooseMenu(
       void doCompact(state, dispatch);
       return;
     }
+    if (it.id === "worktree") {
+      dispatch({ type: "CHOOSE_MENU" });
+      void doWorktree(state, dispatch);
+      return;
+    }
   }
   dispatch({ type: "CHOOSE_MENU" });
 }
@@ -965,6 +982,33 @@ export async function doBroadcast(
         .map((r) => `${r.title.slice(0, 24)}: ${r.ok ? "ok" : r.detail}`)
         .join(" · "),
     });
+  } catch (e) {
+    dispatch({ type: "TOAST", label: String(e) });
+  }
+}
+
+/** /worktree — spawn a fresh agent in a new git worktree of the selected repo. */
+export async function doWorktree(
+  state: AppState,
+  dispatch: Dispatch<Action>,
+): Promise<void> {
+  const sel = state.sessions[state.sel];
+  const cwd = sel?.cwd || null;
+  if (!cwd) {
+    dispatch({ type: "TOAST", label: "select a session in a repo first" });
+    return;
+  }
+  const app = sel.app === "claude" ? "claude code" : sel.app;
+  const harness =
+    app === "codex" || app === "opencode" || app === "claude code"
+      ? app
+      : "claude code";
+  const id = harness === "claude code" ? "claude" : harness;
+  const model =
+    sel.model && sel.model !== "—" ? sel.model : (MODELS[id]?.[0] ?? "");
+  try {
+    const name = await spawnSession(harness, model, cwd, "new", true);
+    dispatch({ type: "TOAST", label: name, detail: "worktree spawning…" });
   } catch (e) {
     dispatch({ type: "TOAST", label: String(e) });
   }

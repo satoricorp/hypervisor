@@ -366,6 +366,19 @@ function SettingsPane() {
         />
       </div>
       <div className="listrow">
+        <span>auto-worktree</span>
+        <span className="dim">isolate a new agent when its repo is busy</span>
+        <Switch
+          on={settings.auto_worktree}
+          onToggle={() =>
+            void patch({
+              ...settings,
+              auto_worktree: !settings.auto_worktree,
+            })
+          }
+        />
+      </div>
+      <div className="listrow">
         <span>launch at login</span>
         <span className="dim">macos login item</span>
         <Switch
@@ -374,8 +387,7 @@ function SettingsPane() {
         />
       </div>
       <p className="footnote">
-        settings.json in app data · analytics = names/counts only (see tasks/POSTHOG.md) ·
-        auto-worktree returns with M4
+        settings.json in app data · analytics = names/counts only (see tasks/POSTHOG.md)
       </p>
     </div>
   );

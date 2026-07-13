@@ -274,10 +274,12 @@ with Tab and proceeds. *Open AC closed in M3x (live pane + approve/deny proof).*
   letters (see design/remote.md §stable ids), window close hides instead of
   quitting, `hvscan cmd` proof harness. Task file: `tasks/M7g.md`.
 
-- [ ] **M4 — worktrees.** `/worktree`, auto-worktree default when `/new` targets a
+- [x] **M4 — worktrees.** `/worktree`, auto-worktree default when `/new` targets a
 repo with an active session, repo·branch·worktree line in the header, settings
 toggle. AC: two sessions in one repo never share a working tree unless the user
-opts out.
+opts out. Task file: `tasks/M4.md`. Built 2026-07-12 — worktree module +
+auto-isolation + `auto_worktree` setting; unit/compile/tsc verified, live UI
+smoke pending.
 
 - [ ] **M5 — history + memory.** sqlite store; sessions archive on end (or manual);
 archive-time **summary with simple semantic meaning** — one sentence of outcome

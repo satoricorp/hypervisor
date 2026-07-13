@@ -55,6 +55,10 @@ pub struct Settings {
     /// First-launch disclosure toast already shown.
     #[serde(default)]
     pub analytics_notice_shown: bool,
+    /// M4: isolate a new session into its own git worktree when its repo's main
+    /// tree already has an active session. Default on — toggle off to share.
+    #[serde(default = "default_true")]
+    pub auto_worktree: bool,
 }
 
 fn default_true() -> bool {
@@ -74,6 +78,7 @@ impl Default for Settings {
             analytics: true,
             distinct_id: String::new(),
             analytics_notice_shown: false,
+            auto_worktree: true,
         }
     }
 }
@@ -136,6 +141,7 @@ mod tests {
         s.imessage_approvals = false;
         s.analytics = false;
         s.distinct_id = "abc-123".into();
+        s.auto_worktree = false;
         save(&path, &s).unwrap();
         let loaded = load(&path);
         assert!(!loaded.sources.codex);
@@ -143,6 +149,7 @@ mod tests {
         assert!(loaded.imessage_bridge_enabled);
         assert!(!loaded.imessage_approvals);
         assert!(!loaded.analytics);
+        assert!(!loaded.auto_worktree);
         assert_eq!(loaded.distinct_id, "abc-123");
         assert!(loaded.source_enabled("claude code"));
         assert!(!loaded.source_enabled("codex"));
@@ -164,6 +171,10 @@ mod tests {
         assert!(!loaded.imessage_approvals);
         assert!(!loaded.imessage_push_done);
         assert!(loaded.analytics, "analytics defaults ON for legacy files");
+        assert!(
+            loaded.auto_worktree,
+            "auto_worktree defaults ON for legacy files"
+        );
         assert!(loaded.distinct_id.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
