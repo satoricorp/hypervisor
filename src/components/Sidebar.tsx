@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { renameSession } from "../api";
+import { archiveSession, renameSession } from "../api";
 import { STATE_META, iconOf } from "../constants";
 import { useStore } from "../store";
 import type { Session } from "../types";
@@ -138,6 +138,37 @@ export function Sidebar() {
                 {subs > 0 ? <span>↳ {subs}</span> : null}
                 {s.loop ? <span className="loopchip">↻</span> : null}
               </span>
+              {s.sid ? (
+                <button
+                  type="button"
+                  className="archivebtn"
+                  title="archive — hide from the board"
+                  aria-label="archive session"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void archiveSession(s.sid!)
+                      .then((msg) => dispatch({ type: "TOAST", label: msg }))
+                      .catch((err) =>
+                        dispatch({ type: "TOAST", label: String(err) }),
+                      );
+                  }}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="4" width="18" height="4" rx="1" />
+                    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+                    <path d="M10 12h4" />
+                  </svg>
+                </button>
+              ) : null}
             </div>
           </Fragment>
         );

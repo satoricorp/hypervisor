@@ -86,8 +86,19 @@ html, body, #root {
     gap: 1px 7px; align-items: center;
     padding: 7px 10px 7px 9px; cursor: pointer;
     border-left: 3px solid transparent;
+    position: relative;
   }
   .srow:hover { background: var(--surface); }
+  /* #5: per-row archive button, revealed on hover. */
+  .archivebtn {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; padding: 0; border: none; border-radius: 4px;
+    background: transparent; color: var(--ink-3); cursor: pointer;
+    opacity: 0; transition: opacity .1s, color .1s, background .1s;
+  }
+  .srow:hover .archivebtn, .archivebtn:focus-visible { opacity: .7; }
+  .archivebtn:hover { opacity: 1; color: var(--ink); background: var(--surface-2); }
   .srow.sel { background: var(--surface-2); border-left-color: var(--sel); }
   .srow .num {
     font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums;
