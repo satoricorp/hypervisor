@@ -4,10 +4,47 @@ import type { Session } from "../types";
 
 const THINK_CLAMP = 280;
 
+/** For file-editing tools, pull the file name + added/removed line counts out
+ *  of the tool input so an edit reads at a glance (#3). Null for other tools. */
+function fileEditStat(
+  name: string,
+  input: string,
+): { file: string; added: number; removed: number } | null {
+  if (!/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name)) return null;
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(input);
+  } catch {
+    return null;
+  }
+  const path = String(obj.file_path ?? obj.path ?? obj.notebook_path ?? "");
+  const file = path.split("/").pop() || path;
+  const lines = (s: unknown) => {
+    const t = typeof s === "string" ? s : "";
+    return t.length ? t.split("\n").length : 0;
+  };
+  if (name === "Write") return { file, added: lines(obj.content), removed: 0 };
+  if (name === "MultiEdit" && Array.isArray(obj.edits)) {
+    let added = 0;
+    let removed = 0;
+    for (const e of obj.edits as Record<string, unknown>[]) {
+      added += lines(e.new_string);
+      removed += lines(e.old_string);
+    }
+    return { file, added, removed };
+  }
+  return {
+    file,
+    added: lines(obj.new_string ?? obj.new_source),
+    removed: lines(obj.old_string ?? obj.old_source),
+  };
+}
+
 function ToolBlock({ item }: { item: Extract<TranscriptItem, { kind: "tool" }> }) {
   const [open, setOpen] = useState(false);
   const hint = item.summary ? `(${item.summary})` : "";
   const err = item.is_error;
+  const edit = fileEditStat(item.name, item.input);
   return (
     <div className={`dtoolblock${err ? " dtool-err" : ""}`}>
       <button
@@ -19,7 +56,20 @@ function ToolBlock({ item }: { item: Extract<TranscriptItem, { kind: "tool" }> }
         <span className="dtoolchev">{open ? "▾" : "▸"}</span>
         <span className="dtool">
           ⚒ {item.name}
-          {hint}
+          {edit ? (
+            <span className="dtooledit">
+              {" "}
+              <span className="dtoolfile">{edit.file}</span>
+              {edit.added ? (
+                <span className="diffadd"> +{edit.added}</span>
+              ) : null}
+              {edit.removed ? (
+                <span className="diffdel"> −{edit.removed}</span>
+              ) : null}
+            </span>
+          ) : (
+            hint
+          )}
         </span>
         {err ? <span className="dtoolerrchip">error</span> : null}
       </button>
