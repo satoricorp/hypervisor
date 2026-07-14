@@ -114,4 +114,8 @@ export interface AppState {
   health: HealthState;
   prompt: string;
   historyFilter: string;
+  /** sid of a freshly-spawned session to auto-select once it appears (#2). */
+  pendingSel?: string | null;
+  /** bumped when a new session is auto-selected, to focus the prompt (#2). */
+  focusNonce?: number;
 }
