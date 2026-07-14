@@ -705,7 +705,14 @@ pub fn spawn_session(
         .unwrap_or_else(|| repo_of(&cwd));
 
     let spawn_time = now_secs();
-    let spawned = tmux::spawn(&harness, &model, &cwd)?;
+    // Match the tmux session id to the worktree branch (hv-<id>) so the two line
+    // up; a plain (non-worktree) spawn gets a fresh hv-<id>.
+    let spawned = tmux::spawn(
+        &harness,
+        &model,
+        &cwd,
+        wt_info.as_ref().map(|w| w.branch.as_str()),
+    )?;
     let tmux_name = spawned.tmux_name.clone();
 
     // M5: prime the new agent with same-repo prior summaries (best-effort). Sent

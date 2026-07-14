@@ -320,7 +320,7 @@ mod tests {
         // /new spawn + sid correlation
         let cwd = "/Users/joe/git/hypervisor";
         let spawn_time = now_secs();
-        let spawned = tmux::spawn("opencode", "opencode/big-pickle", cwd)
+        let spawned = tmux::spawn("opencode", "opencode/big-pickle", cwd, None)
             .expect("opencode /new spawn");
         eprintln!("OPENCODE_NEW_TMUX: {}", spawned.tmux_name);
         assert!(spawned.tmux_name.starts_with("hv-"));

@@ -83,12 +83,28 @@ pub fn new_detached(name: &str, cwd: &str, shell_cmd: &str) -> Result<(), String
     Ok(())
 }
 
-/// Spawn a detached agent session.
-pub fn spawn(harness: &str, model: &str, cwd: &str) -> Result<Spawned, String> {
-    let name = format!("hv-{}", short_id());
+/// Respect-and-work-around gx: `~/.zshrc` exports ANTHROPIC_BASE_URL /
+/// OPENAI_BASE_URL pointing at gx's local inference proxy (e.g.
+/// http://localhost:8787). Since we spawn through `zsh -lic`, agents inherit
+/// it. Probe the port first: if gx's proxy is up, keep routing through it
+/// (capture/review); if it's down, unset the var so the agent falls back to the
+/// real API instead of dying with `ConnectionRefused`. Runs in zsh (new_detached).
+const GX_PROXY_GUARD: &str = "for _v in ANTHROPIC_BASE_URL OPENAI_BASE_URL; do _u=${(P)_v}; if [[ $_u == http://(localhost|127.0.0.1):* ]]; then _hp=${_u#*://}; _hp=${_hp%%/*}; nc -z -w1 ${_hp%%:*} ${_hp##*:} >/dev/null 2>&1 || unset $_v; fi; done; ";
+
+/// Spawn a detached agent session. `name` overrides the tmux session name — used
+/// so a worktree session's tmux id matches its `hv-<id>` branch; None → fresh.
+pub fn spawn(
+    harness: &str,
+    model: &str,
+    cwd: &str,
+    name: Option<&str>,
+) -> Result<Spawned, String> {
+    let name = name
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("hv-{}", short_id()));
     // DECISION: claude gets `--session-id` so owned.json can map before the
     // first prompt (jsonl only appears after the first user message).
-    let (shell_cmd, sid) = match harness {
+    let (agent_cmd, sid) = match harness {
         "claude" | "claude code" => {
             let sid = session_uuid();
             (
@@ -103,16 +119,14 @@ pub fn spawn(harness: &str, model: &str, cwd: &str) -> Result<Spawned, String> {
         "codex" => (format!("codex -m {}", shell_quote(model)), None),
         "opencode" => {
             // Confirmed: `opencode --model provider/model` (also -m).
-            (
-                format!("opencode --model {}", shell_quote(model)),
-                None,
-            )
+            (format!("opencode --model {}", shell_quote(model)), None)
         }
         "cursor" => {
             return Err("cursor is watch-only".into());
         }
         other => return Err(format!("unknown harness: {other}")),
     };
+    let shell_cmd = format!("{GX_PROXY_GUARD}{agent_cmd}");
     new_detached(&name, cwd, &shell_cmd)?;
     Ok(Spawned {
         tmux_name: name,
@@ -188,7 +202,7 @@ mod tests {
     #[test]
     fn cursor_watch_only_and_tmux_socket_works() {
         let home = env::var("HOME").unwrap();
-        let err = spawn("cursor", "x", &home).unwrap_err();
+        let err = spawn("cursor", "x", &home, None).unwrap_err();
         assert!(err.contains("watch-only"), "{err}");
 
         let name = format!("hv-{}", short_id());
@@ -214,7 +228,7 @@ mod tests {
             return;
         }
         let home = env::var("HOME").unwrap();
-        let spawned = spawn("opencode", "opencode/big-pickle", &home).expect("opencode spawn");
+        let spawned = spawn("opencode", "opencode/big-pickle", &home, None).expect("opencode spawn");
         assert!(spawned.tmux_name.starts_with("hv-"));
         let _ = kill(&spawned.tmux_name);
     }
