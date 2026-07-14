@@ -1,10 +1,13 @@
 /** Command palette / menu static data. */
 
+// New Agent targets — only harnesses Hypervisor can actually launch (spawn into
+// its tmux). Cursor is intentionally absent: it's a GUI IDE with no headless
+// agent CLI, so it can't be spawned — it's follow-only. Start it in Cursor and
+// Hypervisor mirrors it (see the cursor transcript reader).
 export const TARGETS = [
   { id: "opencode", label: "opencode", desc: "local cli · any provider" },
   { id: "codex", label: "codex", desc: "openai · terminal" },
   { id: "claude", label: "claude code", desc: "anthropic · terminal" },
-  { id: "cursor", label: "cursor agent", desc: "ide background agent" },
 ];
 
 export const MODELS: Record<string, string[]> = {
@@ -21,7 +24,6 @@ export const MODELS: Record<string, string[]> = {
     "claude-sonnet-5",
     "claude-haiku-4.5",
   ],
-  cursor: ["composer-2", "claude-sonnet-5", "gpt-5"],
 };
 
 export const ROOT_CMDS = [
