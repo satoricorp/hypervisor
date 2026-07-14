@@ -4,7 +4,35 @@
 //! IOKit/IOPMAssertion bindings. Hold while any owned session is `working`;
 //! caller releases after 60s with none working.
 
+use crate::events::{any_owned_working, AppState};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// Always-on keep-awake watcher (M8a → general): hold `caffeinate` while any
+/// hypervisor-owned session is `working`, release 60s after the last goes idle.
+/// This lets adopted/spawned agents keep running with the lid closed (on AC
+/// power) with no toggle — it just goes when you start one. Runs for the app's
+/// lifetime; the held caffeinate child is reaped if the app exits.
+pub fn start(state: Arc<AppState>) {
+    std::thread::spawn(move || {
+        let mut ka = KeepAwake::new();
+        let mut idle_since: Option<Instant> = None;
+        loop {
+            if any_owned_working(&state) {
+                ka.hold();
+                idle_since = None;
+            } else {
+                match idle_since {
+                    None => idle_since = Some(Instant::now()),
+                    Some(t) if t.elapsed() >= Duration::from_secs(60) => ka.release(),
+                    Some(_) => {}
+                }
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    });
+}
 
 pub struct KeepAwake {
     child: Option<Child>,
@@ -28,8 +56,14 @@ impl KeepAwake {
                 }
             }
         }
+        // `-w <our pid>` makes caffeinate exit when Hypervisor dies — even on an
+        // unclean crash/force-quit where Drop never runs. Without it, the child
+        // is reparented to launchd and holds sleep forever (observed: a 3-day
+        // orphan keeping the Mac awake). release() still kills it on the normal
+        // idle path; `-w` is the crash-safety net.
+        let pid = std::process::id().to_string();
         match Command::new("caffeinate")
-            .args(["-dims"])
+            .args(["-dims", "-w", &pid])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
