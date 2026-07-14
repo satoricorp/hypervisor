@@ -96,7 +96,10 @@ pub fn scan_raw(max_age_hours: f64, limit: usize) -> Result<Vec<RawSession>, Str
 
     let mut out = Vec::new();
     for (id, directory, title, model, mtime) in candidates {
-        let mut s = empty_raw("opencode", &id, mtime, &src);
+        // Encode the session id into src so the transcript reader knows which
+        // session's message/part rows to read back out of the shared db.
+        let s_src = format!("{src}#{id}");
+        let mut s = empty_raw("opencode", &id, mtime, &s_src);
         s.title = title;
         s.model = model;
         s.cwd = directory;
