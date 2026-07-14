@@ -19,20 +19,20 @@ export const CTL_HINT: Record<
     tip: "detached in hypervisor tmux — keeps running when Hypervisor is closed, and stays awake while working (lid closed on AC power)",
   },
   native: {
-    label: "api · background",
-    tip: "driven over the harness’s local api — survives app restarts",
+    label: "follow-only",
+    tip: "follow-only — Hypervisor mirrors this session but can’t drive it",
   },
   api: {
-    label: "api · background",
-    tip: "driven over the harness’s local api — survives app restarts",
+    label: "follow-only",
+    tip: "follow-only — Hypervisor mirrors this session but can’t drive it",
   },
   watch: {
-    label: "watch",
-    tip: "read-only watcher — cursor owns this session",
+    label: "follow-only",
+    tip: "follow-only — Hypervisor mirrors this session but can’t drive it",
   },
   observe: {
-    label: "observe-only",
-    tip: "not yet controlled — ⏎ adopts it into background tmux",
+    label: "not controlled",
+    tip: "Hypervisor isn’t driving this yet — ⏎ to take it over",
   },
 };
 
