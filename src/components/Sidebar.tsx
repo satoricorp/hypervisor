@@ -1,13 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { renameSession } from "../api";
-import { CTL_HINT, STATE_META, iconOf } from "../constants";
+import { STATE_META, iconOf } from "../constants";
 import { useStore } from "../store";
 import type { Session } from "../types";
 import { NewAgentButton } from "./NewAgentButton";
 
 /** Model label without the vendor prefix: claude-opus-4-8 → opus-4-8. */
 function cleanModel(m: string): string {
-  if (!m || m === "—") return "";
+  // Hide placeholder models Claude writes for synthetic/error messages
+  // (e.g. "<synthetic>") — angle-bracket values aren't real model names.
+  if (!m || m === "—" || m.startsWith("<")) return "";
   return m.replace(/^claude-/, "");
 }
 
@@ -56,8 +58,6 @@ export function Sidebar() {
         const group = groupLabel(s);
         const showHeader =
           i === 0 || groupLabel(state.sessions[i - 1]) !== group;
-        const ctl = CTL_HINT[s.ctl];
-        const showCtl = s.ctl === "observe" || s.ctl === "watch";
         const isEditing = editing?.sid === s.sid;
         const model = cleanModel(s.model);
         const subs = (s.sidechains ?? 0) > 0 ? (s.sidechains ?? 0) : s.subs.length;
@@ -136,11 +136,6 @@ export function Sidebar() {
                 </span>
                 {s.approval ? <span className="pausechip">⏸</span> : null}
                 {subs > 0 ? <span>↳ {subs}</span> : null}
-                {showCtl && ctl ? (
-                  <span className="obstag" title={ctl.tip}>
-                    {s.ctl === "observe" ? "observe" : "watch"}
-                  </span>
-                ) : null}
                 {s.loop ? <span className="loopchip">↻</span> : null}
               </span>
             </div>

@@ -848,7 +848,9 @@ function SessionView() {
           >
             {hint.label}
           </span>
-          <span className="modelchip">{s.model}</span>
+          {s.model && !s.model.startsWith("<") ? (
+            <span className="modelchip">{s.model}</span>
+          ) : null}
           <span
             className="hicon"
             title={s.app}
