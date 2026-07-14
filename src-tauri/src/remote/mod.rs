@@ -7,7 +7,7 @@
 //! // DECISION: keep-awake via managed `caffeinate -dims` child — no IOKit
 //! binding for v1; release after 60s with no owned session working.
 
-mod keepawake;
+pub mod keepawake;
 pub mod imessage;
 mod tailscale;
 
@@ -15,14 +15,13 @@ use crate::approvals::ToastEvent;
 use crate::events::{self, AppState, SessionsUpdate};
 use crate::grammar::{self, Action, BoardRow};
 use crate::telemetry::{self, ApprovalVia, PromptVia, TelemetryEvent};
-use keepawake::KeepAwake;
 use serde::Serialize;
 use serde_json::json;
 use std::io::{self, Write};
 use std::net::SocketAddrV4;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
@@ -511,29 +510,9 @@ pub fn start(app: AppHandle, state: Arc<AppState>) {
         broadcast_sessions(&bus, &update);
     }
 
-    {
-        let st = Arc::clone(&state);
-        thread::spawn(move || {
-            let mut ka = KeepAwake::new();
-            let mut idle_since: Option<Instant> = None;
-            loop {
-                let working = events::any_owned_working(&st);
-                if working {
-                    ka.hold();
-                    idle_since = None;
-                } else {
-                    match idle_since {
-                        None => idle_since = Some(Instant::now()),
-                        Some(t) if t.elapsed() >= Duration::from_secs(60) => {
-                            ka.release();
-                        }
-                        Some(_) => {}
-                    }
-                }
-                thread::sleep(Duration::from_secs(2));
-            }
-        });
-    }
+    // NOTE: keep-awake moved out of the remote path — it now runs always-on
+    // from the app lifecycle (see keepawake::start in lib.rs setup), so adopted
+    // sessions stay awake even when the remote server isn't serving.
 
     thread::spawn(move || {
         // Refuse any non-loopback bind by construction — SocketAddrV4 only.

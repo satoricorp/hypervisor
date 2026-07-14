@@ -16,7 +16,7 @@ export const CTL_HINT: Record<
 > = {
   tmux: {
     label: "⏻ runs in background",
-    tip: "detached in hypervisor tmux — keeps working with the laptop lid closed",
+    tip: "detached in hypervisor tmux — keeps running when Hypervisor is closed, and stays awake while working (lid closed on AC power)",
   },
   native: {
     label: "api · background",

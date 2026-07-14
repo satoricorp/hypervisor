@@ -108,6 +108,10 @@ pub fn run() {
             app.manage(Arc::clone(&state));
             start_watcher(app.handle().clone(), Arc::clone(&state));
             remote::start(app.handle().clone(), Arc::clone(&state));
+            // Always-on: keep the Mac awake while a hypervisor-owned agent is
+            // working, so adopted/spawned sessions keep running with the lid
+            // closed (on AC power). No toggle — it just goes when you start one.
+            remote::keepawake::start(Arc::clone(&state));
 
             // M7: menu-bar tray + ⌥Space global shortcut.
             if let Err(e) = surface::init(app.handle()) {
