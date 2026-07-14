@@ -30,10 +30,10 @@ enum Dot {
     Red,
 }
 
-/// An RGBA **outline of the Xer0 "H"** — the actual HYPERVISOR wordmark glyph
-/// (a distinctive angular form), not a generic block H. Non-template so it
-/// stays colored: red = needs you, yellow = working, green = all clear.
-/// Rasterizes the embedded font glyph, then draws its contour.
+/// An RGBA **white outline of the Xer0 "H"** (the HYPERVISOR wordmark glyph)
+/// with a small **status dot** badged in the upper-right: green = all clear,
+/// yellow = working, red = needs you. Non-template so the dot stays colored.
+/// Rasterizes the embedded font glyph, draws its contour white, then the dot.
 fn icon_image(d: Dot) -> Image<'static> {
     use ab_glyph::{Font, FontRef, PxScale};
     let (r, g, b) = match d {
@@ -74,6 +74,7 @@ fn icon_image(d: Dot) -> Image<'static> {
     };
     let w: i64 = 2;
     let mut buf = vec![0u8; N * N * 4];
+    // 1. the Xer0 'H' outline — always WHITE now; status lives in the dot below.
     for y in 0..N as i64 {
         for x in 0..N as i64 {
             if !filled(x, y) {
@@ -90,10 +91,36 @@ fn icon_image(d: Dot) -> Image<'static> {
             }
             if edge {
                 let i = ((y as usize) * N + x as usize) * 4;
+                buf[i] = 255;
+                buf[i + 1] = 255;
+                buf[i + 2] = 255;
+                buf[i + 3] = 255;
+            }
+        }
+    }
+    // 2. status dot in the upper-right, with a small transparent gap so it
+    //    reads as a distinct badge over the white glyph: green = all clear,
+    //    yellow = working, red = needs you.
+    let (cx, cy) = (N as f32 - 8.0, 8.0);
+    let dot_r = 6.0_f32;
+    let gap_r = dot_r + 1.6;
+    for y in 0..N as i64 {
+        for x in 0..N as i64 {
+            let dx = x as f32 + 0.5 - cx;
+            let dy = y as f32 + 0.5 - cy;
+            let d2 = dx * dx + dy * dy;
+            let i = ((y as usize) * N + x as usize) * 4;
+            if d2 <= dot_r * dot_r {
                 buf[i] = r;
                 buf[i + 1] = g;
                 buf[i + 2] = b;
                 buf[i + 3] = 255;
+            } else if d2 <= gap_r * gap_r {
+                // transparent halo separates the dot from the glyph strokes
+                buf[i] = 0;
+                buf[i + 1] = 0;
+                buf[i + 2] = 0;
+                buf[i + 3] = 0;
             }
         }
     }

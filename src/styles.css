@@ -213,6 +213,10 @@ html, body, #root {
   .dyou::before { content: "❯ "; color: var(--sel); }
   .dagent { color: var(--ink-2); white-space: pre-wrap; }
   .dtool { color: var(--ink-3); }
+  /* #3: file-edit tool calls — file name + green/red line deltas. */
+  .dtoolfile { color: var(--ink-2); font-weight: 500; }
+  .diffadd { color: var(--ok); font-variant-numeric: tabular-nums; }
+  .diffdel { color: var(--err); font-variant-numeric: tabular-nums; }
   .dthink { color: var(--ink-3); font-size: 10.5px; white-space: pre-wrap; }
   .dthink-clamp { cursor: pointer; }
   .dthinkmore { color: var(--ink-3); opacity: .7; font-size: 9.5px; }
