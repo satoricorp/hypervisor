@@ -34,13 +34,16 @@ export function PromptBar() {
       <>
         <i className="tdot" style={{ background: m.color }} />
         <span>{state.sel + 1}</span>
-        {s.ctl === "observe" ? <span className="obstag">obs</span> : null}
       </>
     );
-    if (s.ctl === "observe") {
-      placeholder = s.noAdopt
-        ? "observe-only — no control path for this source yet"
-        : `observe-only — ⏎ adopts into hypervisor tmux (claude --resume ${s.sid || "…"})`;
+    // Ownership note lives here now (removed from the session list). Only a
+    // tmux-owned session can be driven; claude/codex can be taken over (⏎),
+    // cursor/opencode are follow-only (Hypervisor mirrors but can't drive them).
+    if (s.ctl !== "tmux") {
+      const adoptable = s.ctl === "observe" && !s.noAdopt;
+      placeholder = adoptable
+        ? "Hypervisor isn't driving this yet — press ⏎ to take it over"
+        : "follow-only — Hypervisor mirrors this session but can't drive it";
     }
   }
 
