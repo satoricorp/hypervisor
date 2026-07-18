@@ -40,7 +40,7 @@ export const ROOT_CMDS = [
   {
     id: "review",
     label: "/review",
-    desc: "spawn a reviewer on this session’s diff",
+    desc: "run gx review — codebase + session-aware review of this repo",
   },
   {
     id: "broadcast",

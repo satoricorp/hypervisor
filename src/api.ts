@@ -30,6 +30,16 @@ export async function sendPrompt(sid: string, text: string): Promise<void> {
   return invoke("send_prompt", { sid, text });
 }
 
+/** /review — run `gx review` in the given repo (gx's codebase+session-aware review). */
+export async function spawnReview(cwd?: string | null): Promise<string> {
+  return invoke<string>("spawn_review", { cwd: cwd ?? null });
+}
+
+/** Available models for a harness (opencode fetched live; claude/codex static). Cached 1h. */
+export async function listModels(harness: string): Promise<string[]> {
+  return invoke<string[]>("list_models", { harness });
+}
+
 export async function adoptSession(sid: string): Promise<string> {
   return invoke<string>("adopt_session", { sid });
 }

@@ -118,4 +118,6 @@ export interface AppState {
   pendingSel?: string | null;
   /** bumped when a new session is auto-selected, to focus the prompt (#2). */
   focusNonce?: number;
+  /** live-fetched models per target id (opencode); falls back to static (#6). */
+  dynamicModels?: Record<string, string[]>;
 }

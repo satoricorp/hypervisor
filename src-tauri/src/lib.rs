@@ -26,7 +26,8 @@ use events::{
     approve_session, archive_idle, archive_session, broadcast_prompt, compact_session,
     deny_session, get_access, get_settings, get_transcript, get_usage, get_yolo, kill_session,
     list_archived, list_history, list_sessions, rename_session, send_prompt, set_settings, set_yolo,
-    search_history, spawn_session, start_watcher, unarchive_session, AppState,
+    list_models, search_history, spawn_review, spawn_session, start_watcher, unarchive_session,
+    AppState,
 };
 use remote::imessage::imessage_status;
 use remote::remote_status;
@@ -165,6 +166,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_sessions,
             spawn_session,
+            spawn_review,
+            list_models,
             send_prompt,
             kill_session,
             compact_session,
