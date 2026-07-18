@@ -860,6 +860,74 @@ pub fn spawn_session(
     Ok(tmux_name)
 }
 
+/// `/review` — run `gx review` in the given repo instead of a canned claude
+/// prompt. gx does codebase + session-aware review, spawning its own agent and
+/// managing its own inference proxy; the review session it creates is picked up
+/// by the adapters like any other. Detached tmux, no GX_PROXY_GUARD (gx owns its
+/// proxy here). `gx review` is run via the login shell so PATH resolves it.
+#[tauri::command]
+pub fn spawn_review(cwd: Option<String>) -> Result<String, String> {
+    let cwd = cwd.unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".into()));
+    let name = tmux::next_hv_name();
+    tmux::new_detached(&name, &cwd, "gx review")?;
+    Ok(name)
+}
+
+fn model_cache() -> &'static std::sync::Mutex<HashMap<String, (Vec<String>, std::time::Instant)>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<HashMap<String, (Vec<String>, std::time::Instant)>>> =
+        std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Available models for a harness, for the New Agent picker. opencode is fetched
+/// live (`opencode models`); claude/codex have no list CLI, so curated static
+/// lists. Cached 1h so we don't shell out on every menu open.
+#[tauri::command]
+pub fn list_models(harness: String) -> Vec<String> {
+    {
+        let cache = model_cache().lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((models, at)) = cache.get(&harness) {
+            if at.elapsed() < Duration::from_secs(3600) {
+                return models.clone();
+            }
+        }
+    }
+    let models = match harness.as_str() {
+        "opencode" => fetch_opencode_models(),
+        "codex" => vec!["gpt-5-codex".into(), "gpt-5".into(), "o4-mini".into()],
+        // claude / "claude code"
+        _ => vec![
+            "claude-fable-5".into(),
+            "claude-opus-4-8".into(),
+            "claude-sonnet-5".into(),
+            "claude-haiku-4-5".into(),
+        ],
+    };
+    if !models.is_empty() {
+        let mut cache = model_cache().lock().unwrap_or_else(|p| p.into_inner());
+        cache.insert(harness, (models.clone(), std::time::Instant::now()));
+    }
+    models
+}
+
+/// `opencode models` via a login shell (so nvm PATH resolves it), one per line.
+fn fetch_opencode_models() -> Vec<String> {
+    match std::process::Command::new("/bin/zsh")
+        .args(["-lic", "opencode models"])
+        .output()
+    {
+        // `opencode models` lists 800+; cap to keep the picker usable (common
+        // opencode/* and openai/* sort first).
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.contains(char::is_whitespace))
+            .take(60)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn spawn_failure_detail(tmux_name: &str) -> String {
     match tmux::capture_pane(tmux_name, -40) {
         Ok(pane) => {
